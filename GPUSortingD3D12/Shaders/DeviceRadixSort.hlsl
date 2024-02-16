@@ -604,20 +604,57 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             GroupMemoryBarrierWithGroupSync();
             
 #if defined(SORT_PAIRS)
+    #if defined(SHOULD_ASCEND)
             [unroll]
             for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
                  i < DS_KEYS_PER_THREAD;
                  ++i, t += WaveGetLaneCount())
             {
                 keys[i] = g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] + t;
-    #if defined(KEY_UINT)
+        #if defined(KEY_UINT)
                 b_alt[keys[i]] = g_ds[t];
-    #elif defined(KEY_INT)
+        #elif defined(KEY_INT)
                 b_alt[keys[i]] = UintToInt(g_ds[t]);
-    #elif defined(KEY_FLOAT)
+        #elif defined(KEY_FLOAT)
                 b_alt[keys[i]] = UintToFloat(g_ds[t]);
-    #endif
+        #endif
             }
+    #else
+            if(e_radixShift == 24)
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                        i < DS_KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = e_numKeys - g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] - t - 1;
+        #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_ds[t];
+        #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_ds[t]);
+        #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_ds[t]);
+        #endif
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                        i < DS_KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] + t;
+            #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_ds[t];
+            #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_ds[t]);
+            #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_ds[t]);
+            #endif
+                }
+            }
+    #endif
             GroupMemoryBarrierWithGroupSync();
                 
             [unroll]
@@ -647,16 +684,45 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     #endif
             }
 #else
+    #if defined(SHOULD_ASCEND)
             for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
             {
-    #if defined(KEY_UINT)
+        #if defined(KEY_UINT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = g_ds[i];
-    #elif defined(KEY_INT)
+        #elif defined(KEY_INT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToInt(g_ds[i]);
-    #elif defined(KEY_FLOAT)
+        #elif defined(KEY_FLOAT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToFloat(g_ds[i]);
-    #endif
+        #endif
             }
+    #else
+            if (e_radixShift == 24)
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = g_ds[i];
+            #elif defined(KEY_INT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = UintToInt(g_ds[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = UintToFloat(g_ds[i]);
+            #endif
+                }
+            }
+            else
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = g_ds[i];
+            #elif defined(KEY_INT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToInt(g_ds[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToFloat(g_ds[i]);
+            #endif
+                }
+            }
+    #endif
 #endif
         }
         
@@ -800,20 +866,57 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             //scatter runs of keys into device memory, 
             //store the scatter location in the key register to reuse for the payload
 #if defined(SORT_PAIRS)
+    #if defined(SHOULD_ASCEND)
             [unroll]
             for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
                  i < DS_KEYS_PER_THREAD;
                  ++i, t += WaveGetLaneCount() * serialIterations)
             {
                 keys[i] = g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] + t;
-    #if defined(KEY_UINT)
+        #if defined(KEY_UINT)
                 b_alt[keys[i]] = g_ds[t];
-    #elif defined(KEY_INT)
+        #elif defined(KEY_INT)
                 b_alt[keys[i]] = UintToInt(g_ds[t]);
-    #elif defined(KEY_FLOAT)
+        #elif defined(KEY_FLOAT)
                 b_alt[keys[i]] = UintToFloat(g_ds[t]);
-    #endif
+        #endif
             }
+    #else
+            if(e_radixShift == 24)
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                        i < DS_KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount() * serialIterations)
+                {
+                    keys[i] = e_numKeys - g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] - t - 1;
+        #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_ds[t];
+        #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_ds[t]);
+        #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_ds[t]);
+        #endif
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                        i < DS_KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount() * serialIterations)
+                {
+                    keys[i] = g_ds[ExtractDigit(g_ds[t]) + PART_SIZE] + t;
+            #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_ds[t];
+            #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_ds[t]);
+            #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_ds[t]);
+            #endif
+                }
+            }
+    #endif
             GroupMemoryBarrierWithGroupSync();
                 
             [unroll]
@@ -843,16 +946,45 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     #endif
             }
 #else
+    #if defined(SHOULD_ASCEND)
             for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
             {
-    #if defined(KEY_UINT)
+        #if defined(KEY_UINT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = g_ds[i];
-    #elif defined(KEY_INT)
+        #elif defined(KEY_INT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToInt(g_ds[i]);
-    #elif defined(KEY_FLOAT)
+        #elif defined(KEY_FLOAT)
                 b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToFloat(g_ds[i]);
-    #endif
+        #endif
             }
+    #else
+            if (e_radixShift == 24)
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = g_ds[i];
+            #elif defined(KEY_INT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = UintToInt(g_ds[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[e_numKeys - g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] - i - 1] = UintToFloat(g_ds[i]);
+            #endif
+                }
+            }
+            else
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += DS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = g_ds[i];
+            #elif defined(KEY_INT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToInt(g_ds[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[g_ds[ExtractDigit(g_ds[i]) + PART_SIZE] + i] = UintToFloat(g_ds[i]);
+            #endif
+                }
+            }
+    #endif
 #endif
         }
     }
@@ -926,16 +1058,45 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 
             if (i < e_numKeys)
             {
-#if defined(KEY_UINT)
+#if defined (SHOULD_ASCEND)
+    #if defined(KEY_UINT)
                 b_alt[offset] = key;
-#elif defined(KEY_INT)
+    #elif defined(KEY_INT)
                 b_alt[offset] = UintToInt(key);
-#elif defined(KEY_FLOAT)
+    #elif defined(KEY_FLOAT)
                 b_alt[offset] = UintToFloat(key);
-#endif
+    #endif
                 
-#if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
                 b_altPayload[offset] = b_sortPayload[i];
+    #endif
+#else
+                if (e_radixShift == 24)
+                {
+    #if defined(KEY_UINT)
+                    b_alt[e_numKeys - offset - 1] = key;
+    #elif defined(KEY_INT)
+                    b_alt[e_numKeys - offset - 1] = UintToInt(key);
+    #elif defined(KEY_FLOAT)
+                    b_alt[e_numKeys - offset - 1] = UintToFloat(key);
+    #endif
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+                    b_altPayload[e_numKeys - offset - 1] = b_sortPayload[i];
+    #endif   
+                }
+                else
+                {
+    #if defined(KEY_UINT)
+                    b_alt[offset] = key;
+    #elif defined(KEY_INT)
+                    b_alt[offset] = UintToInt(key);
+    #elif defined(KEY_FLOAT)
+                    b_alt[offset] = UintToFloat(key);
+    #endif
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+                    b_altPayload[offset] = b_sortPayload[i];
+    #endif   
+                }
 #endif
             }
         }

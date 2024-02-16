@@ -1,3 +1,11 @@
+/******************************************************************************
+ * GPUSorting
+ *
+ * SPDX-License-Identifier: MIT
+ * Copyright Thomas Smith 2/13/2023
+ * https://github.com/b0nes164/GPUSorting
+ *
+ ******************************************************************************/
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN             

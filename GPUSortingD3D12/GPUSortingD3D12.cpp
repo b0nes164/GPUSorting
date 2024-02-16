@@ -1,3 +1,11 @@
+/******************************************************************************
+ * GPUSorting
+ *
+ * SPDX-License-Identifier: MIT
+ * Copyright Thomas Smith 2/13/2023
+ * https://github.com/b0nes164/GPUSorting
+ *
+ ******************************************************************************/
 #include "pch.h"
 #include "DeviceRadixSort.h"
 
@@ -98,8 +106,9 @@ int main()
     DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32);
+        GPU_SORTING_DESCENDING,
+        GPU_SORTING_KEY_UINT32,
+        GPU_SORTING_PAYLOAD_UINT32);
 
     //dvr->TestSort(1 << 28, 314159, false, true);
     //dvr->BatchTiming(1 << 28, 50);
