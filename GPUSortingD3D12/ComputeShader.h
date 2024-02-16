@@ -1,6 +1,6 @@
 #pragma once
 #include "pch.h"
-#include "SharedTypes.h"
+#include "GPUsorting.h"
 
 class ComputeShader
 {
@@ -43,15 +43,16 @@ private:
     {
         std::vector<uint8_t> byteCode;
 
+        if (info.Supports16BitTypes)
+        {
+            arguments.push_back(L"-enable-16bit-types");
+            arguments.push_back(L"-DENABLE_16_BIT");
+        }
+
         arguments.push_back(L"-O3");
 #ifdef _DEBUG
-        arguments.push_back(L"-WX");
         arguments.push_back(L"-Zi");
 #endif
-        if (info.Supports16BitTypes)
-            arguments.push_back(L"-enable-16bit-types");
-
-        // in the future . . if(MIN WAVE SIZE)
 
         winrt::com_ptr<IDxcLibrary> library;
         winrt::check_hresult(DxcCreateInstance(

@@ -29,7 +29,7 @@
     <ClInclude Include="pch.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SharedTypes.h">
+    <ClInclude Include="GPUSorting.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ComputeShader.h">
@@ -42,6 +42,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="DeviceRadixSortKernels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UtilityKernels.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

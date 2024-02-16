@@ -180,7 +180,8 @@
     <ClInclude Include="DeviceRadixSort.h" />
     <ClInclude Include="DeviceRadixSortKernels.h" />
     <ClInclude Include="pch.h" />
-    <ClInclude Include="SharedTypes.h" />
+    <ClInclude Include="GPUSorting.h" />
+    <ClInclude Include="UtilityKernels.h" />
     <ClInclude Include="Utils.h" />
   </ItemGroup>
   <ItemGroup>

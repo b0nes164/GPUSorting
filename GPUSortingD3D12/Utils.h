@@ -52,22 +52,3 @@ static std::vector<uint64_t> ReadBackTiming(winrt::com_ptr<ID3D12Resource> readB
     readBackBuffer->Unmap(0, nullptr);
     return result;
 }
-
-static void ExecuteCommandListSynchronously(
-    winrt::com_ptr<ID3D12GraphicsCommandList> cmdList,
-    winrt::com_ptr<ID3D12CommandQueue> cmdQueue,
-    winrt::com_ptr<ID3D12CommandAllocator> cmdAllocator,
-    winrt::com_ptr<ID3D12Fence> fence,
-    wil::unique_event_nothrow &fenceEvent,
-    uint64_t &nextFenceValue)
-{
-    winrt::check_hresult(cmdList->Close());
-    ID3D12CommandList* commandLists[] = { cmdList.get() };
-    cmdQueue->ExecuteCommandLists(1, commandLists);
-    winrt::check_hresult(cmdQueue->Signal(fence.get(), nextFenceValue));
-    winrt::check_hresult(fence->SetEventOnCompletion(nextFenceValue, fenceEvent.get()));
-    ++nextFenceValue;
-    winrt::check_hresult(fenceEvent.wait());
-    winrt::check_hresult(cmdAllocator->Reset());
-    winrt::check_hresult(cmdList->Reset(cmdAllocator.get(), nullptr));
-}

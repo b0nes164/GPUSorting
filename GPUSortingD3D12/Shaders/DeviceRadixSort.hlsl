@@ -1,4 +1,5 @@
 /******************************************************************************
+ * GPUSorting
  * Device Level 8-bit LSD Radix Sort using reduce then scan
  *
  * SPDX-License-Identifier: MIT
@@ -27,6 +28,7 @@
 //#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
 //#define SHOULD_ASCEND
 //#define SORT_PAIRS
+//#define ENABLE_16_BIT
 
 //General macros 
 #define PART_SIZE       3840U   //size of a partition tile
@@ -51,7 +53,7 @@ cbuffer cbParallelSort : register(b0)
     uint e_numKeys;
     uint e_radixShift;
     uint e_threadBlocks;
-    uint e_seed;
+    uint e_padding;
 };
 
 #if defined(KEY_UINT)
@@ -350,8 +352,11 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         const uint index = circularLaneShift + (i & ~laneMask);
         if (index < e_threadBlocks)
         {
-            b_passHist[index + offset] = (WaveGetLaneIndex() != laneMask ? g_scan[gtid.x] : 0) +
-                (gtid.x >= WaveGetLaneCount() ? g_scan[(gtid.x & ~laneMask) - 1] : 0) + aggregate;
+            b_passHist[index + offset] = 
+                (WaveGetLaneIndex() != laneMask ? g_scan[gtid.x] : 0) +
+                (gtid.x >= WaveGetLaneCount() ?
+                g_scan[(gtid.x & ~laneMask) - 1] : 0) +
+                aggregate;
         }
     }
 
@@ -472,7 +477,11 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     if (gid.x < e_threadBlocks - 1)
     {
         uint keys[DS_KEYS_PER_THREAD];
+#if defined(ENABLE_16_BIT)
+        uint16_t offsets[DS_KEYS_PER_THREAD];
+#else
         uint offsets[DS_KEYS_PER_THREAD];
+#endif
         
         if (WaveGetLaneCount() >= 16)
         {
@@ -928,143 +937,6 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
                 b_altPayload[offset] = b_sortPayload[i];
 #endif
-            }
-        }
-    }
-}
-
-//---------------------------VALIDATION UTILITIES---------------------------
-//Perform validation on GPU to massively increase test speed
-//Note: Replaces the e_seed value with maxReadbackErrors, so
-//we do not need a larger constant buffer bound !
-RWStructuredBuffer<uint> b_errorCount : register(u6);
-RWStructuredBuffer<uint3> b_error : register(u7);
-
-#define VAL_PART_SIZE   2048
-#define VAL_THREADS     256
-
-#define TAUS_STEP_1 ((z1 & 4294967294U) << 12) ^ (((z1 << 13) ^ z1) >> 19)
-#define TAUS_STEP_2 ((z2 & 4294967288U) << 4) ^ (((z2 << 2) ^ z2) >> 25)
-#define TAUS_STEP_3 ((z3 & 4294967280U) << 17) ^ (((z3 << 3) ^ z3) >> 11)
-#define LCG_STEP    (z4 * 1664525 + 1013904223U)
-#define HYBRID_TAUS (z1 ^ z2 ^ z3 ^ z4)
-
-#if defined(KEY_UINT)
-groupshared uint g_val[VAL_PART_SIZE + 1];
-#elif defined(KEY_INT)
-groupshared int g_val[VAL_PART_SIZE + 1];
-#elif defined(KEY_FLOAT)
-groupshared float g_val[VAL_PART_SIZE + 1];
-#endif
-
-//Initialize the input on the GPU, assumes threadblocks = 256
-[numthreads(VAL_THREADS, 1, 1)]
-void InitSortInput(int3 id : SV_DispatchThreadID)
-{
-    const uint numKeys = e_numKeys;
-    const uint inc = VAL_THREADS * 256;
-    
-    uint z1 = (id.x << 2) * e_seed;
-    uint z2 = ((id.x << 2) + 1) * e_seed;
-    uint z3 = ((id.x << 2) + 2) * e_seed;
-    uint z4 = ((id.x << 2) + 3) * e_seed;
-    
-    z1 = TAUS_STEP_1;
-    z2 = TAUS_STEP_2;
-    z3 = TAUS_STEP_3;
-    z4 = LCG_STEP;
-    
-    for (uint i = id.x; i < numKeys; i += inc)
-    {
-        z1 = TAUS_STEP_1;
-        z2 = TAUS_STEP_2;
-        z3 = TAUS_STEP_3;
-        z4 = LCG_STEP;
-#if defined(KEY_UINT)
-        b_sort[i] = HYBRID_TAUS;
-#elif defined (KEY_INT)
-        b_sort[i] = asint(HYBRID_TAUS);
-#elif defined (KEY_FLOAT)
-        b_sort[i] = asfloat(HYBRID_TAUS);
-#endif
-        
-#if defined(SORT_PAIRS)
-    #if defined(PAYLOAD_UINT)
-        b_sortPayload[i] = HYBRID_TAUS;
-    #elif defined (PAYLOAD_INT)
-        b_sortPayload[i] = asint(HYBRID_TAUS);
-    #elif defined (PAYLOAD_FLOAT)
-        b_sortPayload[i] = asfloat(HYBRID_TAUS);
-    #endif
-#endif
-    }
-}
-
-//Used to standalone test the scan kernel, assumes threadblocks = 1
-//Scan values so small its not a huge time sink to check on the CPU
-[numthreads(VAL_THREADS, 1, 1)]
-void InitScanTestValues(int3 id : SV_DispatchThreadID)
-{
-    if (id.x < e_numKeys)
-        b_passHist[id.x] = 1;
-}
-
-[numthreads(1, 1, 1)]
-void ClearErrorCount(int3 id : SV_DispatchThreadID)
-{
-    b_errorCount[0] = 0;
-}
-
-[numthreads(VAL_THREADS, 1, 1)]
-void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
-{
-    if (gid.x < e_threadBlocks - 1)
-    {
-        const uint t = gid.x * VAL_PART_SIZE;
-        for (int i = gtid.x; i < VAL_PART_SIZE + 1; i += VAL_THREADS)
-        {
-#if defined(KEY_UINT)
-            g_val[i] = b_sort[i + t];
-#elif defined (KEY_INT)
-            g_val[i] = b_sort[i + t];
-#elif defined (KEY_FLOAT)
-            g_val[i] = b_sort[i + t];
-#endif
-        }
-        GroupMemoryBarrierWithGroupSync();
-        
-        for (int i = gtid.x; i < VAL_PART_SIZE; i += VAL_THREADS)
-        {
-#if defined(SHOULD_ASCEND)
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
-            if (g_val[i] > g_val[i + 1])
-    #endif
-#else
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
-            if (g_val[i] < g_val[i + 1])
-    #endif
-#endif
-            {
-                InterlockedAdd(b_errorCount[0], 1);
-            }
-        }
-    }
-    else
-    {
-        for (int i = gtid.x + gid.x * VAL_PART_SIZE; i < e_numKeys - 1; i += VAL_THREADS)
-        {
-            
-#if defined(SHOULD_ASCEND)
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
-            if (b_sort[i] > b_sort[i + 1])
-    #endif
-#else
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
-            if (b_sort[i] < b_sort[i + 1])
-    #endif
-#endif
-            {
-                InterlockedAdd(b_errorCount[0], 1);
             }
         }
     }

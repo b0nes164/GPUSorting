@@ -95,8 +95,13 @@ int main()
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp();
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    DeviceRadixSort* dvr = new DeviceRadixSort(device, deviceInfo);
-    //dvr->TestSort(4096, 314159, false, true);
+    DeviceRadixSort* dvr = new DeviceRadixSort(
+        device, 
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_UINT32);
+
+    //dvr->TestSort(1 << 28, 314159, false, true);
     //dvr->BatchTiming(1 << 28, 50);
     dvr->TestAll();
 	return 0;
