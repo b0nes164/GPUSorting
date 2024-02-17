@@ -2,7 +2,7 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2023
+ * Copyright Thomas Smith 2/13/2024
  * https://github.com/b0nes164/GPUSorting
  * 
  ******************************************************************************/
@@ -62,6 +62,12 @@ groupshared float g_valPayload[VAL_PART_SIZE + 1];
 #define HYBRID_TAUS (z1 ^ z2 ^ z3 ^ z4)
 
 //Initialize the input on the GPU, assumes threadblocks = 256
+//Match the payload to the output (on a bit-level)
+//That way, if the payload was sorting correctly, we can check
+//In the same way we check the keys.
+//This is a bit of a hack (does not directly test stability of the payloads), 
+//but if sort was not stable, the keys would fail, and payloads would fail
+
 [numthreads(VAL_THREADS, 1, 1)]
 void InitSortInput(int3 id : SV_DispatchThreadID)
 {
@@ -105,7 +111,7 @@ void InitSortInput(int3 id : SV_DispatchThreadID)
 }
 
 //Used to standalone test the scan kernel, assumes threadblocks = 1
-//Scan values so small its not a huge time sink to check on the CPU
+//Scan values so small its not a huge time cost to check on the CPU
 [numthreads(VAL_THREADS, 1, 1)]
 void InitScanTestValues(int3 id : SV_DispatchThreadID)
 {
@@ -136,22 +142,33 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
         }
         GroupMemoryBarrierWithGroupSync();
         
+        //Reinterpret the payload to match the type of the key it was sorted on
         for (int i = gtid.x; i < VAL_PART_SIZE; i += VAL_THREADS)
         {
             uint isInvalid = 0;
-#if defined(SHOULD_ASCEND)
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+#if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+    #if defined(SHOULD_ASCEND)
             isInvalid |= g_val[i] > g_val[i + 1];
-    #endif
-    #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-            isInvalid |= g_valPayload[i] > g_valPayload[i + 1];
-    #endif
-#else
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+            #if defined (KEY_UINT)
+            isInvalid |= asuint(g_valPayload[i]) > asuint(g_valPayload[i + 1]);
+            #elif defined(KEY_INT)
+            isInvalid |= asint(g_valPayload[i]) > asint(g_valPayload[i + 1]);
+            #elif defined(KEY_FLOAT)
+            isInvalid |= asfloat(g_valPayload[i]) > asfloat(g_valPayload[i + 1]);
+            #endif
+        #endif
+    #else
             isInvalid |= g_val[i] < g_val[i + 1];
-    #endif
-    #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-            isInvalid |= g_valPayload[i] < g_valPayload[i + 1];
+        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+            #if defined (KEY_UINT)
+            isInvalid |= asuint(g_valPayload[i]) < asuint(g_valPayload[i + 1]);
+            #elif defined(KEY_INT)
+            isInvalid |= asint(g_valPayload[i]) < asint(g_valPayload[i + 1]);
+            #elif defined(KEY_FLOAT)
+            isInvalid |= asfloat(g_valPayload[i]) < asfloat(g_valPayload[i + 1]);
+            #endif
+        #endif
     #endif
 #endif
             if (isInvalid)
@@ -162,20 +179,30 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
     {
         for (int i = gtid.x + gid.x * VAL_PART_SIZE; i < e_numKeys - 1; i += VAL_THREADS)
         {
-            uint isInvalid = 0;
-#if defined(SHOULD_ASCEND)
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+            uint isInvalid = 0;     
+#if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+    #if defined(SHOULD_ASCEND)
             isInvalid |= b_sort[i] > b_sort[i + 1];
-    #endif
-    #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-            isInvalid |= b_sortPayload[i] > b_sortPayload[i + 1];
-    #endif
-#else
-    #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
+        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+            #if defined (KEY_UINT)
+            isInvalid |= asuint(b_sortPayload[i]) > asuint(b_sortPayload[i + 1]);
+            #elif defined(KEY_INT)
+            isInvalid |= asint(b_sortPayload[i]) > asint(b_sortPayload[i + 1]);
+            #elif defined(KEY_FLOAT)
+            isInvalid |= asfloat(b_sortPayload[i]) > asfloat(b_sortPayload[i + 1]);
+            #endif
+        #endif
+    #else
             isInvalid |= b_sort[i] < b_sort[i + 1];
-    #endif
-    #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-            isInvalid |= b_sortPayload[i] < b_sortPayload[i + 1];
+        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+            #if defined (KEY_UINT)
+            isInvalid |= asuint(b_sortPayload[i]) < asuint(b_sortPayload[i + 1]);
+            #elif defined(KEY_INT)
+            isInvalid |= asint(b_sortPayload[i]) < asint(b_sortPayload[i + 1]);
+            #elif defined(KEY_FLOAT)
+            isInvalid |= asfloat(b_sortPayload[i]) < asfloat(b_sortPayload[i + 1]);
+            #endif
+        #endif
     #endif
 #endif
             if (isInvalid)

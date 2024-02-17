@@ -3,7 +3,7 @@
  * Device Level 8-bit LSD Radix Sort using reduce then scan
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2023
+ * Copyright Thomas Smith 2/13/2024
  *  
  *  Permission is hereby granted, free of charge, to any person obtaining a copy
  *  of this software and associated documentation files (the "Software"), to deal
@@ -53,7 +53,7 @@ cbuffer cbParallelSort : register(b0)
     uint e_numKeys;
     uint e_radixShift;
     uint e_threadBlocks;
-    uint e_padding;
+    uint padding;
 };
 
 #if defined(KEY_UINT)
@@ -544,7 +544,6 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                 }
                 GroupMemoryBarrierWithGroupSync();
             }
-            GroupMemoryBarrierWithGroupSync();
             
             //inclusive/exclusive prefix sum up the histograms
             //followed by exclusive prefix sum across the reductions
@@ -592,15 +591,13 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             }
             
             //take advantage of barrier
-            const uint exclusiveWaveReduction = g_ds[gtid.x];
+            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] +
+                    b_passHist[gtid.x * e_threadBlocks + gid.x] - g_ds[gtid.x];
             GroupMemoryBarrierWithGroupSync();
             
             //scatter keys into shared memory
             for (uint i = 0; i < DS_KEYS_PER_THREAD; ++i)
                 g_ds[offsets[i]] = keys[i];
-        
-            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] +
-                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveWaveReduction;
             GroupMemoryBarrierWithGroupSync();
             
 #if defined(SORT_PAIRS)

@@ -2,7 +2,7 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2023
+ * Copyright Thomas Smith 2/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
@@ -51,3 +51,16 @@ enum GPU_SORTING_PAYLOAD_TYPE
     GPU_SORTING_PAYLOAD_INT32   = 1,
     GPU_SORTING_PAYLOAD_FLOAT32 = 2,
 }   GPU_SORTING_PAYLOAD_TYPE;
+
+struct GPUSortingConfig
+{
+    GPU_SORTING_MODE sortingMode;
+    GPU_SORTING_ORDER sortingOrder;
+    GPU_SORTING_KEY_TYPE sortingKeyType;
+    GPU_SORTING_PAYLOAD_TYPE sortingPayloadType;
+};
+
+class GPUSorter
+{
+
+};

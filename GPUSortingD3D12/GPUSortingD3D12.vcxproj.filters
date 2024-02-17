@@ -24,6 +24,9 @@
     <ClCompile Include="DeviceRadixSort.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="OneSweep.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h">
@@ -45,6 +48,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="UtilityKernels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OneSweepKernels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="OneSweep.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

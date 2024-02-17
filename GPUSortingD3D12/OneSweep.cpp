@@ -8,57 +8,19 @@
  ******************************************************************************/
 #pragma once
 #include "pch.h"
-#include "DeviceRadixSort.h"
+#include "OneSweep.h"
 
-DeviceRadixSort::DeviceRadixSort(
-    winrt::com_ptr<ID3D12Device> _device, 
-    DeviceInfo _deviceInfo,
-    GPU_SORTING_ORDER sortingOrder,
-    GPU_SORTING_KEY_TYPE keyType)
+OneSweep::OneSweep(
+	winrt::com_ptr<ID3D12Device> _device, 
+	DeviceInfo _deviceInfo, 
+	GPU_SORTING_ORDER sortingOrder, 
+	GPU_SORTING_KEY_TYPE keyType)
 {
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
     m_sortingConfig.sortingMode = GPU_SORTING_KEYS_ONLY;
     m_sortingConfig.sortingOrder = sortingOrder;
     m_sortingConfig.sortingKeyType = keyType;
-
-    switch (keyType) 
-    {
-    case GPU_SORTING_KEY_UINT32:
-        m_compileArguments.push_back(L"-DKEY_UINT");
-        break;
-    case GPU_SORTING_KEY_INT32:
-        m_compileArguments.push_back(L"-DKEY_INT");
-        break;
-    case GPU_SORTING_KEY_FLOAT32:
-        m_compileArguments.push_back(L"-DKEY_FLOAT");
-        break;
-    }
-
-    if(sortingOrder == GPU_SORTING_ASCENDING)
-        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
-
-    Initialize();
-}
-
-DeviceRadixSort::DeviceRadixSort(
-    winrt::com_ptr<ID3D12Device> _device, 
-    DeviceInfo _deviceInfo,
-    GPU_SORTING_ORDER sortingOrder,
-    GPU_SORTING_KEY_TYPE keyType, 
-    GPU_SORTING_PAYLOAD_TYPE payloadType)
-{
-    m_device.copy_from(_device.get());
-    m_devInfo = _deviceInfo;
-    m_sortingConfig.sortingMode = GPU_SORTING_PAIRS;
-    m_sortingConfig.sortingOrder = sortingOrder;
-    m_sortingConfig.sortingKeyType = keyType;
-    m_sortingConfig.sortingPayloadType = payloadType;
-
-    m_compileArguments.push_back(L"-DSORT_PAIRS");
-
-    if (sortingOrder == GPU_SORTING_ASCENDING)
-        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
 
     switch (keyType)
     {
@@ -73,23 +35,22 @@ DeviceRadixSort::DeviceRadixSort(
         break;
     }
 
-    switch (payloadType)
-    {
-    case GPU_SORTING_PAYLOAD_UINT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_UINT");
-        break;
-    case GPU_SORTING_PAYLOAD_INT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_INT");
-        break;
-    case GPU_SORTING_PAYLOAD_FLOAT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_FLOAT");
-        break;
-    }
+    if (sortingOrder == GPU_SORTING_ASCENDING)
+        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
 
     Initialize();
 }
 
-void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldReadBack, bool shouldValidate)
+OneSweep::OneSweep(
+	winrt::com_ptr<ID3D12Device> _device,
+	DeviceInfo _deviceInfo,
+	GPU_SORTING_ORDER sortingOrder,
+	GPU_SORTING_KEY_TYPE keyType,
+	GPU_SORTING_PAYLOAD_TYPE payloadType)
+{
+}
+
+void OneSweep::TestSort(uint32_t testSize, uint32_t seed, bool shouldReadBack, bool shouldValidate)
 {
     UpdateSize(testSize);
     CreateTestInput(seed);
@@ -101,10 +62,10 @@ void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldRead
 
     if (shouldReadBack)
     {
-        uint64_t readBackSize = numKeys < maxReadback ? numKeys : maxReadback;
+        uint64_t readBackSize = m_numKeys < k_maxReadback ? m_numKeys : k_maxReadback;
         m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortBuffer.get(), 0, readBackSize * sizeof(uint32_t));
         ExecuteCommandList();
-        std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, numKeys);
+        std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, m_numKeys);
 
         printf("---------------KEYS---------------\n");
         for (uint32_t i = 0; i < vecOut.size(); ++i)
@@ -114,7 +75,7 @@ void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldRead
         {
             m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, readBackSize * sizeof(uint32_t));
             ExecuteCommandList();
-            vecOut = ReadBackBuffer(m_readBackBuffer, numKeys);
+            vecOut = ReadBackBuffer(m_readBackBuffer, m_numKeys);
 
             printf("\n \n \n");
             printf("---------------PAYLOADS---------------\n");
@@ -124,8 +85,7 @@ void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldRead
     }
 }
 
-//TODO: move to abstract
-void DeviceRadixSort::BatchTiming(uint32_t inputSize, uint32_t batchSize)
+void OneSweep::BatchTiming(uint32_t inputSize, uint32_t batchSize)
 {
     UpdateSize(inputSize);
 
@@ -146,64 +106,16 @@ void DeviceRadixSort::BatchTiming(uint32_t inputSize, uint32_t batchSize)
     printf("Estimated speed at %u iterations and %u keys: %E \n", batchSize, inputSize, totalTime);
 }
 
-void DeviceRadixSort::TestAll()
+void OneSweep::TestAll()
 {
-    printf("Beginning ");
-    printf(k_sortName);
-    PrintSortingConfig(m_sortingConfig);
-    printf("test all. \n");
-
-    uint32_t sortPayloadTestsPassed = 0;
-    const uint32_t testEnd = partitionSize * 2 + 1;
-    for (uint32_t i = partitionSize; i < testEnd; ++i)
-    {
-        sortPayloadTestsPassed += ValidateSort(i, i);
-
-        if (!(i & 127))
-            printf(".");
-    }
-
-    printf("\n");
-    printf("%u / %u passed. \n", sortPayloadTestsPassed, partitionSize + 1);
-
-    UpdateSize(1 << 21); //TODO: BAD!
-    printf("Beginning interthreadblock scan validation tests. \n");
-    uint32_t scanTestsPassed = 0;
-    for (uint32_t i = 1; i < 256; ++i)
-    {
-        scanTestsPassed += ValidateScan(i);
-        if (!(i & 7))
-            printf(".");
-    }
-
-    printf("\n");
-    printf("%u / %u passed. \n", scanTestsPassed, 255);
-
-    printf("Beginning large size tests\n");
-    sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
-
-    UpdateSize(1);
-    UpdateSize(1 << 22);
-    sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
-
-    UpdateSize(1);
-    UpdateSize(1 << 23);
-    sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
-
-    uint32_t totalTests = partitionSize + 1 + 255 + 3;
-    if (sortPayloadTestsPassed + scanTestsPassed == totalTests)
-        printf("%u / %u  All tests passed. \n", totalTests, totalTests);
-    else
-        printf("%u / %u  Test failed. \n", sortPayloadTestsPassed + scanTestsPassed, totalTests);
 }
 
-void DeviceRadixSort::Initialize()
+void OneSweep::Initialize()
 {
-    m_initDeviceRadix = new InitDeviceRadixSort(m_device, m_devInfo, m_compileArguments);
+    m_initOneSweep = new InitOneSweep(m_device, m_devInfo, m_compileArguments);
     m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_upsweep = new Upsweep(m_device, m_devInfo, m_compileArguments);
-    m_scan = new Scan(m_device, m_devInfo, m_compileArguments);
-    m_downsweep = new Downsweep(m_device, m_devInfo, m_compileArguments);
+    m_globalHist = new GlobalHist(m_device, m_devInfo, m_compileArguments);
+    m_digitBinningPass = new DigitBinningPass(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
     m_initScanTestValues = new InitScanTestValues(m_device, m_devInfo, m_compileArguments);
@@ -227,30 +139,38 @@ void DeviceRadixSort::Initialize()
     InitStaticBuffers();
 }
 
-//TODO: move to abstract
-void DeviceRadixSort::UpdateSize(uint32_t size)
+void OneSweep::UpdateSize(uint32_t size)
 {
-    if (numKeys != size)
+    if (m_numKeys != size)
     {
-        numKeys = size;
-        partitions = (numKeys + partitionSize - 1) / partitionSize;
+        m_numKeys = size;
+        m_partitions = (m_numKeys + k_partitionSize - 1) / k_partitionSize;
         DisposeBuffers();
-        InitBuffers(numKeys, partitions);
+        InitBuffers(m_numKeys, m_partitions);
     }
 }
 
-void DeviceRadixSort::DisposeBuffers()
+void OneSweep::DisposeBuffers()
 {
     m_sortBuffer = nullptr;
+    m_sortPayloadBuffer = nullptr;
     m_altBuffer = nullptr;
+    m_altPayloadBuffer = nullptr;
     m_passHistBuffer = nullptr;
 }
 
-void DeviceRadixSort::InitStaticBuffers()
+void OneSweep::InitStaticBuffers()
 {
     m_globalHistBuffer = CreateBuffer(
         m_device,
-        radix * radixPasses * sizeof(uint32_t),
+        k_radix * k_radixPasses * sizeof(uint32_t),
+        D3D12_HEAP_TYPE_DEFAULT,
+        D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+    m_indexBuffer = CreateBuffer(
+        m_device,
+        k_radixPasses * sizeof(uint32_t),
         D3D12_HEAP_TYPE_DEFAULT,
         D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
@@ -264,13 +184,13 @@ void DeviceRadixSort::InitStaticBuffers()
 
     m_readBackBuffer = CreateBuffer(
         m_device,
-        maxReadback * sizeof(uint32_t),
+        k_maxReadback * sizeof(uint32_t),
         D3D12_HEAP_TYPE_READBACK,
         D3D12_RESOURCE_STATE_COPY_DEST,
         D3D12_RESOURCE_FLAG_NONE);
 }
 
-void DeviceRadixSort::InitBuffers(uint32_t numKeys, const uint32_t threadBlocks)
+void OneSweep::InitBuffers(const uint32_t numKeys, const uint32_t threadBlocks)
 {
     m_sortBuffer = CreateBuffer(
         m_device,
@@ -288,7 +208,7 @@ void DeviceRadixSort::InitBuffers(uint32_t numKeys, const uint32_t threadBlocks)
 
     m_passHistBuffer = CreateBuffer(
         m_device,
-        radix * threadBlocks * sizeof(uint32_t),
+        k_radix * k_radixPasses * threadBlocks * sizeof(uint32_t),
         D3D12_HEAP_TYPE_DEFAULT,
         D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
@@ -328,55 +248,52 @@ void DeviceRadixSort::InitBuffers(uint32_t numKeys, const uint32_t threadBlocks)
     }
 }
 
-//TODO: move to abstract
-//Initialize the input for testing
-void DeviceRadixSort::CreateTestInput(uint32_t seed)
+void OneSweep::CreateTestInput(uint32_t seed)
 {
     //Init the sorting input
     m_initSortInput->Dispatch(m_cmdList,
         m_sortBuffer->GetGPUVirtualAddress(),
         m_sortPayloadBuffer->GetGPUVirtualAddress(),
-        numKeys,
+        m_numKeys,
         seed);
     UAVBarrierSingle(m_cmdList, m_sortBuffer);
     ExecuteCommandList();
 }
 
-//Adds all necessary items to the cmdList, but does not execute.
-void DeviceRadixSort::PrepareSortCmdList()
+void OneSweep::PrepareSortCmdList()
 {
-    m_initDeviceRadix->Dispatch(m_cmdList,
+    m_initOneSweep->Dispatch(
+        m_cmdList,
         m_globalHistBuffer->GetGPUVirtualAddress(),
-        1);
+        m_passHistBuffer->GetGPUVirtualAddress(),
+        m_indexBuffer->GetGPUVirtualAddress(),
+        m_partitions);
+    UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
+    UAVBarrierSingle(m_cmdList, m_passHistBuffer);
+    UAVBarrierSingle(m_cmdList, m_indexBuffer);
+
+    m_globalHist->Dispatch(
+        m_cmdList,
+        m_sortBuffer->GetGPUVirtualAddress(),
+        m_globalHistBuffer->GetGPUVirtualAddress(),
+        m_numKeys,
+        m_partitions);
+    UAVBarrierSingle(m_cmdList, m_sortBuffer);
     UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
 
     for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
     {
-        m_upsweep->Dispatch(m_cmdList,
+        m_digitBinningPass->Dispatch(
+            m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
-            m_globalHistBuffer->GetGPUVirtualAddress(),
-            m_passHistBuffer->GetGPUVirtualAddress(),
-            numKeys,
-            partitions,
-            radixShift);
-        UAVBarrierSingle(m_cmdList, m_passHistBuffer);
-
-        m_scan->Dispatch(m_cmdList,
-            m_passHistBuffer->GetGPUVirtualAddress(),
-            partitions);
-        UAVBarrierSingle(m_cmdList, m_passHistBuffer);
-        UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
-
-        m_downsweep->Dispatch(m_cmdList,
-            m_sortBuffer->GetGPUVirtualAddress(),
-            m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),
-            m_altPayloadBuffer->GetGPUVirtualAddress(),
             m_globalHistBuffer->GetGPUVirtualAddress(),
             m_passHistBuffer->GetGPUVirtualAddress(),
-            numKeys,
-            partitions,
+            m_indexBuffer->GetGPUVirtualAddress(),
+            m_numKeys,
+            m_partitions,
             radixShift);
+
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
         UAVBarrierSingle(m_cmdList, m_sortPayloadBuffer);
         UAVBarrierSingle(m_cmdList, m_altBuffer);
@@ -387,8 +304,7 @@ void DeviceRadixSort::PrepareSortCmdList()
     }
 }
 
-//TODO: move to abstract
-void DeviceRadixSort::ExecuteCommandList()
+void OneSweep::ExecuteCommandList()
 {
     winrt::check_hresult(m_cmdList->Close());
     ID3D12CommandList* commandLists[] = { m_cmdList.get() };
@@ -401,8 +317,7 @@ void DeviceRadixSort::ExecuteCommandList()
     winrt::check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
 }
 
-//TODO: move to abstract
-bool DeviceRadixSort::ValidateOutput(bool shouldPrint)
+bool OneSweep::ValidateOutput(bool shouldPrint)
 {
     m_clearErrorCount->Dispatch(m_cmdList,
         m_errorCountBuffer->GetGPUVirtualAddress());
@@ -412,7 +327,7 @@ bool DeviceRadixSort::ValidateOutput(bool shouldPrint)
         m_sortBuffer->GetGPUVirtualAddress(),
         m_sortPayloadBuffer->GetGPUVirtualAddress(),
         m_errorCountBuffer->GetGPUVirtualAddress(),
-        numKeys);
+        m_numKeys);
 
     UAVBarrierSingle(m_cmdList, m_errorCountBuffer);
     ExecuteCommandList();
@@ -427,56 +342,15 @@ bool DeviceRadixSort::ValidateOutput(bool shouldPrint)
         printf(k_sortName);
         PrintSortingConfig(m_sortingConfig);
         if (errCount)
-            printf("failed at size %u with %u errors. \n", numKeys, errCount);
+            printf("failed at size %u with %u errors. \n", m_numKeys, errCount);
         else
-            printf("passed at size %u. \n", numKeys);
+            printf("passed at size %u. \n", m_numKeys);
     }
 
     return !errCount;
 }
 
-//TODO: move to abstract
-bool DeviceRadixSort::ValidateSort(uint32_t size, uint32_t seed)
-{
-    UpdateSize(size);
-    CreateTestInput(seed);
-    PrepareSortCmdList();
-    ExecuteCommandList();
-    return ValidateOutput(false);
-}
-
-bool DeviceRadixSort::ValidateScan(uint32_t size)
-{
-    m_initScanTestValues->Dispatch(m_cmdList,
-        m_passHistBuffer->GetGPUVirtualAddress(),
-        size);
-    UAVBarrierSingle(m_cmdList, m_passHistBuffer);
-
-    m_scan->Dispatch(m_cmdList,
-        m_passHistBuffer->GetGPUVirtualAddress(),
-        size);
-    ExecuteCommandList();
-
-    m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_passHistBuffer.get(), 0, (uint64_t)size * sizeof(uint32_t));
-    ExecuteCommandList();
-
-    std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, size);
-
-    bool isValid = true;
-    for (uint32_t i = 0; i < size; ++i)
-    {
-        if (vecOut[i] != i)
-        {
-            isValid = false;
-            break;
-        }
-    }
-
-    return isValid;
-}
-
-//TODO: move to abstract
-double DeviceRadixSort::TimeSort(uint32_t seed)
+double OneSweep::TimeSort(uint32_t seed)
 {
     CreateTestInput(seed);
     m_cmdList->EndQuery(m_queryHeap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);

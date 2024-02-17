@@ -2,7 +2,7 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2023
+ * Copyright Thomas Smith 2/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
@@ -59,4 +59,42 @@ static std::vector<uint64_t> ReadBackTiming(winrt::com_ptr<ID3D12Resource> readB
     memcpy(result.data(), pData, 2 * sizeof(uint64_t));
     readBackBuffer->Unmap(0, nullptr);
     return result;
+}
+
+static void PrintSortingConfig(const GPUSortingConfig& sortingConfig)
+{
+
+    switch (sortingConfig.sortingKeyType)
+    {
+    case GPU_SORTING_KEY_UINT32:
+        printf("keys uint32 ");
+        break;
+    case GPU_SORTING_KEY_INT32:
+        printf("keys int32 ");
+        break;
+    case GPU_SORTING_KEY_FLOAT32:
+        printf("keys float32 ");
+        break;
+    }
+
+    if (sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+    {
+        switch (sortingConfig.sortingPayloadType)
+        {
+        case GPU_SORTING_PAYLOAD_UINT32:
+            printf("payload uint32 ");
+            break;
+        case GPU_SORTING_PAYLOAD_INT32:
+            printf("payload int32 ");
+            break;
+        case GPU_SORTING_PAYLOAD_FLOAT32:
+            printf("payload float32 ");
+            break;
+        }
+    }
+
+    if (sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)
+        printf("ascending ");
+    else
+        printf("descending ");
 }

@@ -9,20 +9,20 @@
 #pragma once
 #include "pch.h"
 #include "GPUSorting.h"
-#include "DeviceRadixSortKernels.h"
+#include "OneSweepKernels.h"
 #include "UtilityKernels.h"
 #include "Utils.h"
 
-class DeviceRadixSort
+class OneSweep
 {
-	const char* k_sortName = "DeviceRadixSort ";
-	const uint32_t radixPasses = 4;
-	const uint32_t radix = 256;
-	const uint32_t partitionSize = 3840;
-	const uint32_t maxReadback = 1 << 20;
+	const char* k_sortName = "OneSweep ";
+	const uint32_t k_radixPasses = 4;
+	const uint32_t k_radix = 256;
+	const uint32_t k_partitionSize = 3840;
+	const uint32_t k_maxReadback = 1 << 20;
 
-	uint32_t numKeys = 0;
-	uint32_t partitions = 0;
+	uint32_t m_numKeys = 0;
+	uint32_t m_partitions = 0;
 
 	winrt::com_ptr<ID3D12Device> m_device;
 	DeviceInfo m_devInfo{};
@@ -43,38 +43,38 @@ class DeviceRadixSort
 	winrt::com_ptr<ID3D12Resource> m_sortPayloadBuffer;
 	winrt::com_ptr<ID3D12Resource> m_altBuffer;
 	winrt::com_ptr<ID3D12Resource> m_altPayloadBuffer;
+	winrt::com_ptr<ID3D12Resource> m_indexBuffer;
 	winrt::com_ptr<ID3D12Resource> m_passHistBuffer;
 	winrt::com_ptr<ID3D12Resource> m_globalHistBuffer;
 	winrt::com_ptr<ID3D12Resource> m_errorCountBuffer;
 	winrt::com_ptr<ID3D12Resource> m_readBackBuffer;
 
-	InitDeviceRadixSort* m_initDeviceRadix;
-	Upsweep* m_upsweep;
-	Scan* m_scan;
-	Downsweep* m_downsweep;
+	InitOneSweep* m_initOneSweep;
+	GlobalHist* m_globalHist;
+	DigitBinningPass* m_digitBinningPass;
 	InitSortInput* m_initSortInput;
 	ClearErrorCount* m_clearErrorCount;
 	Validate* m_validate;
 	InitScanTestValues* m_initScanTestValues;
-	
+
 public:
-	DeviceRadixSort(
-		winrt::com_ptr<ID3D12Device> _device, 
+	OneSweep(
+		winrt::com_ptr<ID3D12Device> _device,
 		DeviceInfo _deviceInfo,
 		GPU_SORTING_ORDER sortingOrder,
 		GPU_SORTING_KEY_TYPE keyType);
 
-	DeviceRadixSort(
-		winrt::com_ptr<ID3D12Device> _device, 
+	OneSweep(
+		winrt::com_ptr<ID3D12Device> _device,
 		DeviceInfo _deviceInfo,
 		GPU_SORTING_ORDER sortingOrder,
 		GPU_SORTING_KEY_TYPE keyType,
 		GPU_SORTING_PAYLOAD_TYPE payloadType);
 
 	void TestSort(
-		uint32_t testSize, 
-		uint32_t seed, 
-		bool shouldReadBack, 
+		uint32_t testSize,
+		uint32_t seed,
+		bool shouldReadBack,
 		bool shouldValidate);
 
 	void BatchTiming(uint32_t inputSize, uint32_t batchSize);
@@ -101,8 +101,6 @@ private:
 	bool ValidateOutput(bool shouldPrint);
 
 	bool ValidateSort(uint32_t size, uint32_t seed);
-
-	bool ValidateScan(uint32_t size);
 
 	double TimeSort(uint32_t seed);
 };

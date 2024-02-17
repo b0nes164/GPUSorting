@@ -2,12 +2,13 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2023
+ * Copyright Thomas Smith 2/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
 #include "pch.h"
 #include "DeviceRadixSort.h"
+#include "OneSweep.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 611; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
@@ -103,15 +104,70 @@ int main()
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp();
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    DeviceRadixSort* dvr = new DeviceRadixSort(
+    /*DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_UINT32);
+    dvr->TestAll();
+    dvr = new DeviceRadixSort(
+        device,
         deviceInfo,
         GPU_SORTING_DESCENDING,
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
+    dvr->TestAll();
+
+    dvr = new DeviceRadixSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_INT32,
+        GPU_SORTING_PAYLOAD_INT32);
+    dvr->TestAll();
+
+    dvr = new DeviceRadixSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_DESCENDING,
+        GPU_SORTING_KEY_INT32,
+        GPU_SORTING_PAYLOAD_INT32);
+    dvr->TestAll();
+
+    dvr = new DeviceRadixSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_FLOAT32,
+        GPU_SORTING_PAYLOAD_FLOAT32);
+    dvr->TestAll();
+
+    dvr = new DeviceRadixSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_DESCENDING,
+        GPU_SORTING_KEY_FLOAT32,
+        GPU_SORTING_PAYLOAD_FLOAT32);
+    dvr->TestAll();
+
+    dvr = new DeviceRadixSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_DESCENDING,
+        GPU_SORTING_KEY_FLOAT32,
+        GPU_SORTING_PAYLOAD_UINT32);
+    dvr->TestAll();*/
 
     //dvr->TestSort(1 << 28, 314159, false, true);
     //dvr->BatchTiming(1 << 28, 50);
-    dvr->TestAll();
+
+    OneSweep* oneSweep = new OneSweep(
+        device,
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_UINT32);
+
+    //oneSweep->TestSort(268435200, 12345, false, true);
+    oneSweep->BatchTiming(268435200, 5);
 	return 0;
 }
