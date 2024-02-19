@@ -102,7 +102,9 @@ void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldRead
     if (shouldReadBack)
     {
         uint64_t readBackSize = numKeys < maxReadback ? numKeys : maxReadback;
+        ReadbackPreBarrier(m_cmdList, m_sortBuffer);
         m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortBuffer.get(), 0, readBackSize * sizeof(uint32_t));
+        ReadbackPostBarrier(m_cmdList, m_sortBuffer);
         ExecuteCommandList();
         std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, numKeys);
 
@@ -112,7 +114,9 @@ void DeviceRadixSort::TestSort(uint32_t testSize, uint32_t seed, bool shouldRead
 
         if (m_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
         {
+            ReadbackPreBarrier(m_cmdList, m_sortPayloadBuffer);
             m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, readBackSize * sizeof(uint32_t));
+            ReadbackPostBarrier(m_cmdList, m_sortPayloadBuffer);
             ExecuteCommandList();
             vecOut = ReadBackBuffer(m_readBackBuffer, numKeys);
 

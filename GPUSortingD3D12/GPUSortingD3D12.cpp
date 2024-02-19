@@ -109,7 +109,9 @@ int main()
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32);
-    dvr->TestAll();
+
+    dvr->TestSort(1 << 16, 123, true, false);
+    //dvr->TestAll();
     //dvr->BatchTiming(1 << 28, 50);
 
     /*dvr = new DeviceRadixSort(

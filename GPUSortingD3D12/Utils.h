@@ -39,6 +39,32 @@ static void UAVBarrierSingle(
     commandList->ResourceBarrier(1, &barrier);
 }
 
+static void ReadbackPreBarrier(
+    winrt::com_ptr<ID3D12GraphicsCommandList> commandList,
+    winrt::com_ptr<ID3D12Resource> readBackSource)
+{
+    D3D12_RESOURCE_BARRIER barrier = {
+    CD3DX12_RESOURCE_BARRIER::Transition(
+            readBackSource.get(),
+            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_COPY_SOURCE) };
+    
+    commandList->ResourceBarrier(1, &barrier);
+}
+
+static void ReadbackPostBarrier(
+    winrt::com_ptr<ID3D12GraphicsCommandList> commandList,
+    winrt::com_ptr<ID3D12Resource> readBackSource)
+{
+    D3D12_RESOURCE_BARRIER barrier = {
+    CD3DX12_RESOURCE_BARRIER::Transition(
+            readBackSource.get(),
+            D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_COMMON) };
+
+    commandList->ResourceBarrier(1, &barrier);
+}
+
 static std::vector<uint32_t> ReadBackBuffer(
     winrt::com_ptr<ID3D12Resource> readBackBuffer,
     uint32_t readBackSize)
