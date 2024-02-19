@@ -467,7 +467,9 @@ bool DeviceRadixSort::ValidateScan(uint32_t size)
     {
         if (vecOut[i] != i)
         {
+            printf("\nFailed at size %u.\n", size);
             isValid = false;
+
             break;
         }
     }

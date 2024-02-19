@@ -265,7 +265,8 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     GroupMemoryBarrierWithGroupSync();
     const uint partitionIndex = g_pass[PART_SIZE - 1];
     
-    if (true)
+    //if this is not the final partition
+    if (partitionIndex < e_threadBlocks - 1)
     {
         uint keys[KEYS_PER_THREAD];
 #if defined(ENABLE_16_BIT)
@@ -285,8 +286,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 keys[i] = b_sort[t];
             }
             
-            
-            //Warp Level Multisplit
+            //WLMS
             const uint waveParts = (WaveGetLaneCount() + 31) / 32;
             [unroll]
             for (uint i = 0; i < KEYS_PER_THREAD; ++i)
@@ -326,8 +326,6 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 GroupMemoryBarrierWithGroupSync();
             }
             
-            //inclusive/exclusive prefix sum up the histograms
-            //followed by exclusive prefix sum across the reductions
             uint reduction = g_pass[gtid.x];
             for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
             {
@@ -373,53 +371,39 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                     offsets[i] += g_pass[ExtractDigit(keys[i])];
             }
             
-            //lookback
-            //Extremely slow
-            /*
+            //lookback 1 warp : 1 digit
             if(partitionIndex)
             {
-                uint reduction = 0;
-                const uint passHistOffset = PassHistOffset(gtid.x);
-                for (uint k = partitionIndex; k > 0;)
-                {
-                    const uint flagPayload = b_passHist[passHistOffset + k - 1];
-                    if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
-                    {
-                        reduction += flagPayload >> 2;
-                        InterlockedAdd(b_passHist[passHistOffset + partitionIndex], 1 | (reduction << 2));
-                        g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] +
-                            reduction - g_pass[gtid.x];
-                        break;
-                    }
-
-                    if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
-                    {
-                        reduction += flagPayload >> 2;
-                        k--;
-                    }
-                }
-            }
-            else
-            {
-                g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
-                    g_pass[gtid.x];
-            }
-            */
-            
-            if(partitionIndex)
-            {
+                const uint waveParts = (WaveGetLaneCount() + 31) / 32;
                 for (uint i = getWaveIndex(gtid.x); i < RADIX; i += getWaveCountPass())
                 {
                     uint reduction = 0;
                     const uint passHistOffset = PassHistOffset(i);
-                    for (int k = (int)partitionIndex - WaveGetLaneIndex(); k > 0;)
+                    for (uint k = partitionIndex + WaveGetLaneCount() - WaveGetLaneIndex(); k > WaveGetLaneCount();)
                     {
-                        const uint flagPayload = b_passHist[passHistOffset + k - 1];
+                        const uint flagPayload = b_passHist[passHistOffset + k - WaveGetLaneCount() - 1];
                         if (WaveActiveAllTrue((flagPayload & FLAG_MASK) > FLAG_NOT_READY))
                         {
-                            const uint inclusiveIndex = firstbitlow((uint)WaveActiveBallot((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE));
-                            if (inclusiveIndex != 0xffffffff)
+                            const uint4 inclusiveBallot = WaveActiveBallot((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE);
+                            
+                            //dot(inclusiveBallot, uint4(1,1,1,1)) != 0 does not work
+                            //consider 0xffffffff + 1 + 0xffffffff + 1
+                            if (inclusiveBallot.x || inclusiveBallot.y || inclusiveBallot.z || inclusiveBallot.w)
                             {
+                                uint inclusiveIndex = 0;
+                                for(uint wavePart = 0; wavePart < waveParts; ++wavePart)
+                                {
+                                    if(countbits(inclusiveBallot[wavePart]))
+                                    {
+                                        inclusiveIndex += firstbitlow(inclusiveBallot[wavePart]);
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        inclusiveIndex += 32;
+                                    }
+                                }
+                                    
                                 reduction += WaveActiveSum(WaveGetLaneIndex() <= inclusiveIndex ? (flagPayload >> 2) : 0);
                                 
                                 if (WaveGetLaneIndex() == inclusiveIndex)
@@ -453,9 +437,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             
             //scatter keys into device
             for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
-            {
                 b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
-            }
         }
         
         if (WaveGetLaneCount() < 16)
@@ -463,4 +445,213 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             
         }
     }
+    
+    //final partition is processed differently
+    if(partitionIndex == e_threadBlocks - 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        //if there is more than one partition in the
+        //sort, immediately begin lookback
+        if (partitionIndex)
+        {
+            const uint waveParts = (WaveGetLaneCount() + 31) / 32;
+            for (uint i = getWaveIndex(gtid.x); i < RADIX; i += getWaveCountPass())
+            {
+                uint reduction = 0;
+                const uint passHistOffset = PassHistOffset(i);
+                for (uint k = partitionIndex + WaveGetLaneCount() - WaveGetLaneIndex(); k > WaveGetLaneCount();)
+                {
+                    const uint flagPayload = b_passHist[passHistOffset + k - WaveGetLaneCount() - 1];
+                    if (WaveActiveAllTrue((flagPayload & FLAG_MASK) > FLAG_NOT_READY))
+                    {
+                        const uint4 inclusiveBallot = WaveActiveBallot((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE);
+                            
+                        if (inclusiveBallot.x || inclusiveBallot.y || inclusiveBallot.z || inclusiveBallot.w)
+                        {
+                            uint inclusiveIndex = 0;
+                            for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
+                            {
+                                if (countbits(inclusiveBallot[wavePart]))
+                                {
+                                    inclusiveIndex += firstbitlow(inclusiveBallot[wavePart]);
+                                    break;
+                                }
+                                else
+                                {
+                                    inclusiveIndex += 32;
+                                }
+                            }
+                                    
+                            reduction += WaveActiveSum(WaveGetLaneIndex() <= inclusiveIndex ? (flagPayload >> 2) : 0);
+                                
+                            if (WaveGetLaneIndex() == inclusiveIndex)
+                                g_pass[i] = b_globalHist[i + (e_radixShift << 5)] + reduction;
+                            break;
+                        }
+                        else
+                        {
+                            reduction += WaveActiveSum(flagPayload >> 2);
+                            k -= WaveGetLaneCount();
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            g_pass[gtid.x] = b_globalHist[gtid.x + (e_radixShift << 5)];
+        }
+        GroupMemoryBarrierWithGroupSync();
+        
+        const uint waveParts = (WaveGetLaneCount() + 31) / 32;
+        const uint partEnd = (e_numKeys + PASS_DIM - 1) / PASS_DIM * PASS_DIM;
+        for (uint i = gtid.x + partitionIndex * PART_SIZE; i < partEnd; i += PASS_DIM)
+        {
+            uint key;
+            uint offset;
+            uint bits = 0;
+            if(i < e_numKeys)
+                key = b_sort[i];
+            
+            uint4 waveFlags = (WaveGetLaneCount() & 31) ?
+                (1U << WaveGetLaneCount()) - 1 : 0xffffffff;
+            if (i < e_numKeys)
+            {
+                [unroll]
+                for (uint k = 0; k < RADIX_LOG; ++k)
+                {
+                    const bool t = key >> (k + e_radixShift) & 1;
+                    const uint4 ballot = WaveActiveBallot(t);
+                    for (int wavePart = 0; wavePart < waveParts; ++wavePart)
+                        waveFlags[wavePart] &= (t ? 0 : 0xffffffff) ^ ballot[wavePart];
+                }
+            
+                for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
+                {
+                    if (WaveGetLaneIndex() >= wavePart * 32)
+                    {
+                        const uint ltMask = WaveGetLaneIndex() >= (wavePart + 1) * 32 ?
+                            0xffffffff : (1U << (WaveGetLaneIndex() & 31)) - 1;
+                        bits += countbits(waveFlags[wavePart] & ltMask);
+                    }
+                }
+            }
+            
+            for (int k = 0; k < PASS_DIM / WaveGetLaneCount(); ++k)
+            {
+                if (getWaveIndex(gtid.x) == k && i < e_numKeys)
+                    offset = g_pass[key >> e_radixShift & RADIX_MASK] + bits;
+                GroupMemoryBarrierWithGroupSync();
+                
+                if (getWaveIndex(gtid.x) == k && i < e_numKeys && bits == 0)
+                {
+                    for (int wavePart = 0; wavePart < waveParts; ++wavePart)
+                        g_pass[key >> e_radixShift & RADIX_MASK] += countbits(waveFlags[wavePart]);
+                }
+                GroupMemoryBarrierWithGroupSync();
+            }
+
+            if (i < e_numKeys)
+                b_alt[offset] = key;
+        }
+    }
 }
+
+//------------------Alternative Lookbacks------------------
+//lookback 1 thread : 1 digit
+//Extremely slow
+/*
+if(partitionIndex)
+{
+    uint reduction = 0;
+    const uint passHistOffset = PassHistOffset(gtid.x);
+    for (uint k = partitionIndex; k > 0;)
+    {
+        const uint flagPayload = b_passHist[passHistOffset + k - 1];
+        if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
+        {
+            reduction += flagPayload >> 2;
+            InterlockedAdd(b_passHist[passHistOffset + partitionIndex], 1 | (reduction << 2));
+            g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] +
+                reduction - g_pass[gtid.x];
+            break;
+        }
+
+        if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
+        {
+            reduction += flagPayload >> 2;
+            k--;
+        }
+    }
+}
+else
+{
+    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
+        g_pass[gtid.x];
+}
+*/
+            
+//lookback 1 warp : 1 digit
+//Barrier instead of atomics, also slow
+/*
+if (partitionIndex)
+{
+    GroupMemoryBarrierWithGroupSync();
+    if(!gtid.x)
+        g_pass[0] = 0;
+    GroupMemoryBarrierWithGroupSync();
+                
+    uint i = getWaveIndex(gtid.x);
+    uint k = partitionIndex + WaveGetLaneCount() - WaveGetLaneIndex();
+    uint passHistOffset = PassHistOffset(i);
+    uint reduction = 0;
+    do
+    {
+        if (i < RADIX && k > WaveGetLaneCount())
+        {
+            const uint flagPayload = b_passHist[passHistOffset + k - WaveGetLaneCount() - 1];
+            if (WaveActiveAllTrue((flagPayload & FLAG_MASK) > FLAG_NOT_READY))
+            {
+                const uint inclusiveIndex = firstbitlow((uint) WaveActiveBallot((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE));
+                if (inclusiveIndex != 0xffffffff)
+                {
+                    reduction += WaveActiveSum(WaveGetLaneIndex() <= inclusiveIndex ? (flagPayload >> 2) : 0);
+                                
+                    if (WaveGetLaneIndex() == inclusiveIndex)
+                    {
+                        InterlockedAdd(g_pass[0], 1);
+                        b_passHist[passHistOffset + partitionIndex] += 1 | (reduction << 2);
+                        g_pass[i + PART_SIZE] = b_globalHist[i + (e_radixShift << 5)] +
+                            reduction - g_pass[i];
+                    }
+                                
+                    i += getWaveCountPass();
+                    if(i < RADIX)
+                    {
+                        k = partitionIndex + WaveGetLaneCount() - WaveGetLaneIndex();
+                        passHistOffset = PassHistOffset(i);
+                        reduction = 0;
+                    }
+                    else
+                    {
+                        passHistOffset = WaveGetLaneCount() + 1;
+                        k = 0;                            
+                    }
+                }
+                else
+                {
+                    reduction += WaveActiveSum(flagPayload >> 2);
+                    k -= WaveGetLaneCount();
+                }
+            }
+        }
+                    
+        AllMemoryBarrierWithGroupSync();
+    } while (g_pass[0] < RADIX);
+}
+else
+{
+    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
+        g_pass[gtid.x];
+}
+*/
