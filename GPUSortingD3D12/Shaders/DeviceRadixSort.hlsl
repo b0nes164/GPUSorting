@@ -805,10 +805,10 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             for (uint j = RADIX >> 2; j > 0; j >>= 1)
             {
                 GroupMemoryBarrierWithGroupSync();
-                for (uint i = gtid.x; i < j; i += DS_DIM)
+                if(gtid.x < j)
                 {
-                    g_ds[((((i << 1) + 2) << shift) - 1) >> 1] +=
-                            g_ds[((((i << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
+                    g_ds[((((gtid.x << 1) + 2) << shift) - 1) >> 1] +=
+                            g_ds[((((gtid.x << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
                 }
                 shift++;
             }
@@ -821,10 +821,10 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             {
                 --shift;
                 GroupMemoryBarrierWithGroupSync();
-                for (uint i = gtid.x; i < j; i += DS_DIM)
+                if(gtid.x < j)
                 {
-                    const uint t = ((((i << 1) + 1) << shift) - 1) >> 1;
-                    const uint t2 = ((((i << 1) + 2) << shift) - 1) >> 1;
+                    const uint t = ((((gtid.x << 1) + 1) << shift) - 1) >> 1;
+                    const uint t2 = ((((gtid.x << 1) + 2) << shift) - 1) >> 1;
                     const uint t3 = g_ds[t];
                     g_ds[t] = (g_ds[t] & 0xffff) | (g_ds[t2] & 0xffff0000);
                     g_ds[t2] += t3 & 0xffff0000;
