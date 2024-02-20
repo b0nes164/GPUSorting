@@ -18,8 +18,8 @@ class OneSweep
 	const char* k_sortName = "OneSweep ";
 	const uint32_t k_radixPasses = 4;
 	const uint32_t k_radix = 256;
-	const uint32_t k_partitionSize = 3840;
-	const uint32_t k_maxReadback = 1 << 20;
+	const uint32_t k_partitionSize = 7680;
+	const uint32_t k_maxReadback = 1 << 19;
 
 	uint32_t m_numKeys = 0;
 	uint32_t m_partitions = 0;

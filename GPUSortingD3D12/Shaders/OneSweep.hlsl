@@ -37,10 +37,10 @@
  ******************************************************************************/
 
 //General macros 
-#define PART_SIZE           3840U   //size of a partition tile
+#define PART_SIZE           7680U   //size of a partition tile
 
 #define G_HIST_DIM          128U    //The number of threads in a global hist threadblock 
-#define PASS_DIM            256U    //The number of threads int digit binning pass
+#define PASS_DIM            512U    //The number of threads int digit binning pass
 
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins
@@ -56,7 +56,7 @@
 
 //For the DigitBinningPass kernel
 #define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass threadblock
-#define MAX_PASS_SMEM       4096U   //shared memory for DigitBinningPass kernel
+#define MAX_PASS_SMEM       8192U   //shared memory for DigitBinningPass kernel
 
 //for the chained scan with decoupled lookback
 #define FLAG_NOT_READY      0       //Flag value inidicating neither inclusive sum, nor reduction of a partition tile is ready
@@ -153,6 +153,16 @@ inline uint PassHistOffset(uint digit)
     return (digit + (e_radixShift >> 3 << RADIX_LOG)) * e_threadBlocks;
 }
 
+inline uint GlobalHistOffset()
+{
+    return e_radixShift << 5;
+}
+
+inline uint IndexOffset()
+{
+    return e_radixShift >> 3;
+}
+
 inline uint WaveHistsSizeWGE16()
 {
     return PASS_DIM / WaveGetLaneCount() * RADIX;
@@ -201,15 +211,16 @@ void GlobalHistogram(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     }
     GroupMemoryBarrierWithGroupSync();
     
-    //reduce
+    //reduce, begin prefix sum across counts
     for (uint i = gtid.x; i < RADIX; i += G_HIST_DIM)
-        g_gHist[i] += g_gHist[i + RADIX];
-    
-    //waves 16 or greater can perform a more elegant scan because 16 * 16 = 256
-    if (WaveGetLaneCount() >= 16)
     {
-        for (uint i = gtid.x; i < RADIX; i += G_HIST_DIM)
-            g_gHist[i] += WavePrefixSum(g_gHist[i]);
+        g_gHist[i] += g_gHist[i + RADIX];
+        g_gHist[i] += WavePrefixSum(g_gHist[i]);
+    }
+        
+    //waves 16 or greater can perform a more elegant scan because 16 * 16 = 256
+    if (false)
+    {
         GroupMemoryBarrierWithGroupSync();
         
         if (gtid.x < (RADIX / WaveGetLaneCount()))
@@ -245,32 +256,134 @@ void GlobalHistogram(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     }
     
     //exclusive Brent-Kung with fused upsweep downsweep
-    if (WaveGetLaneCount() < 16)
+    if (true)
     {
-        //TODO
+        if (gtid.x < WaveGetLaneCount())
+        {
+            const uint circularLaneShift = WaveGetLaneIndex() + 1 &
+                WaveGetLaneCount() - 1;
+            InterlockedAdd(b_globalHist[circularLaneShift],
+                circularLaneShift ? g_gHist[gtid.x].x : 0);
+            
+            InterlockedAdd(b_globalHist[circularLaneShift + SEC_RADIX_START],
+                circularLaneShift ? g_gHist[gtid.x].y : 0);
+            
+            InterlockedAdd(b_globalHist[circularLaneShift + THIRD_RADIX_START],
+                circularLaneShift ? g_gHist[gtid.x].z : 0);
+            
+            InterlockedAdd(b_globalHist[circularLaneShift + FOURTH_RADIX_START],
+                circularLaneShift ? g_gHist[gtid.x].w : 0);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        
+        const uint laneLog = countbits(WaveGetLaneCount() - 1);
+        uint offset = laneLog;
+        uint j = WaveGetLaneCount();
+        for (; j < (RADIX >> 1); j <<= laneLog)
+        {
+            for (uint i = gtid.x; i < (RADIX >> offset); i += G_HIST_DIM)
+            {
+                g_gHist[((i + 1) << offset) - 1] +=
+                    WavePrefixSum(g_gHist[((i + 1) << offset) - 1]);
+            }
+            GroupMemoryBarrierWithGroupSync();
+            
+            for (uint i = gtid.x + j; i < RADIX; i += G_HIST_DIM)
+            {
+                if ((i & ((j << laneLog) - 1)) >= j)
+                {
+                    if (i < (j << laneLog))
+                    {
+                        InterlockedAdd(b_globalHist[i],
+                            WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].x, 0) +
+                            ((i & (j - 1)) ? g_gHist[i - 1].x : 0));
+                        
+                        InterlockedAdd(b_globalHist[i + SEC_RADIX_START],
+                            WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].y, 0) +
+                            ((i & (j - 1)) ? g_gHist[i - 1].y : 0));
+                        
+                        InterlockedAdd(b_globalHist[i + THIRD_RADIX_START],
+                            WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].z, 0) +
+                            ((i & (j - 1)) ? g_gHist[i - 1].z : 0));
+                        
+                        InterlockedAdd(b_globalHist[i + FOURTH_RADIX_START],
+                            WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].w, 0) +
+                            ((i & (j - 1)) ? g_gHist[i - 1].w : 0));
+                    }
+                    else
+                    {
+                        if ((i + 1) & (j - 1))
+                        {
+                            g_gHist[i] +=
+                                WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1], 0);
+                        }
+                    }
+                }
+            }
+            offset += laneLog;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        
+        for (uint i = gtid.x + j; i < RADIX; i += G_HIST_DIM)
+        {
+            InterlockedAdd(b_globalHist[i],
+                WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].x, 0) +
+                ((i & (j - 1)) ? g_gHist[i - 1].x : 0));
+            
+            InterlockedAdd(b_globalHist[i + SEC_RADIX_START],
+                WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].y, 0) +
+                ((i & (j - 1)) ? g_gHist[i - 1].y : 0));
+            
+            InterlockedAdd(b_globalHist[i + THIRD_RADIX_START],
+                WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].z, 0) +
+                ((i & (j - 1)) ? g_gHist[i - 1].z : 0));
+            
+            InterlockedAdd(b_globalHist[i + FOURTH_RADIX_START],
+                WaveReadLaneAt(g_gHist[((i >> offset) << offset) - 1].w, 0) +
+                ((i & (j - 1)) ? g_gHist[i - 1].w : 0));
+        }
     }
 }
 
 [numthreads(PASS_DIM, 1, 1)]
 void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
 {
-    //clear shared memory
-    const uint histsEnd = WaveGetLaneCount() < 16 ? WaveHistsSizeWLT16() : WaveHistsSizeWGE16();
-    for (uint i = gtid.x; i < histsEnd; i += PASS_DIM)
-        g_pass[i] = 0;
-
-    //atomically assign partition tile index
-    if(gtid.x == 0)
-        InterlockedAdd(b_index[e_radixShift >> 3], 1, g_pass[PART_SIZE - 1]);
-    GroupMemoryBarrierWithGroupSync();
-    const uint partitionIndex = g_pass[PART_SIZE - 1];
     
-    //if this is not the final partition
+    uint partitionIndex;
+    
+    //WGT16 can clear shared memory early and does not need an extra barrier
+    if (WaveGetLaneCount() > 16)
+    {
+        const uint histsEnd = WaveHistsSizeWGE16();
+        for (uint i = gtid.x; i < histsEnd; i += PASS_DIM)
+            g_pass[i] = 0;
+        
+        if (gtid.x == 0)
+            InterlockedAdd(b_index[IndexOffset()], 1, g_pass[PART_SIZE - 1]);
+        GroupMemoryBarrierWithGroupSync();
+        partitionIndex = g_pass[PART_SIZE - 1];
+    }
+    
+    if (WaveGetLaneCount() <= 16)
+    {
+        if (gtid.x == 0)
+            InterlockedAdd(b_index[IndexOffset()], 1, g_pass[0]);
+        GroupMemoryBarrierWithGroupSync();
+        partitionIndex = g_pass[0];
+        GroupMemoryBarrierWithGroupSync();  //painful but necessary
+        
+        const uint histsEnd = WaveGetLaneCount() < 16 ? WaveHistsSizeWLT16() :
+            WaveHistsSizeWGE16();
+        for (uint i = gtid.x; i < histsEnd; i += PASS_DIM)
+            g_pass[i] = 0;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    
     if (partitionIndex < e_threadBlocks - 1)
     {
         uint keys[KEYS_PER_THREAD];
 #if defined(ENABLE_16_BIT)
-        uint16_t offsets[KEYS_PER_THREAD];
+    uint16_t offsets[KEYS_PER_THREAD];
 #else
         uint offsets[KEYS_PER_THREAD];
 #endif
@@ -280,8 +393,8 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             //Load keys into registers
             [unroll]
             for (uint i = 0, t = DeviceOffsetWGE16(gtid.x, partitionIndex);
-                 i < KEYS_PER_THREAD;
-                 ++i, t += WaveGetLaneCount())
+                i < KEYS_PER_THREAD;
+                ++i, t += WaveGetLaneCount())
             {
                 keys[i] = b_sort[t];
             }
@@ -299,7 +412,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 {
                     const bool t = keys[i] >> (k + e_radixShift) & 1;
                     const uint4 ballot = WaveActiveBallot(t);
-                    for (int wavePart = 0; wavePart < waveParts; ++wavePart)
+                    for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
                         waveFlags[wavePart] &= (t ? 0 : 0xffffffff) ^ ballot[wavePart];
                 }
                     
@@ -326,20 +439,27 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 GroupMemoryBarrierWithGroupSync();
             }
             
-            uint reduction = g_pass[gtid.x];
-            for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
+            uint reduction;
+            if (gtid.x < RADIX)
             {
-                reduction += g_pass[i];
-                g_pass[i] = reduction - g_pass[i];
-            }
+                reduction = g_pass[gtid.x];
+                for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
+                {
+                    reduction += g_pass[i];
+                    g_pass[i] = reduction - g_pass[i];
+                }
             
-            InterlockedAdd(b_passHist[PassHistOffset(gtid.x) + partitionIndex],
-                (partitionIndex ? FLAG_REDUCTION : FLAG_INCLUSIVE) | reduction << 2);
-            reduction += WavePrefixSum(reduction);
+                InterlockedAdd(b_passHist[PassHistOffset(gtid.x) + partitionIndex],
+                    (partitionIndex ? FLAG_REDUCTION : FLAG_INCLUSIVE) | reduction << 2);
+                reduction += WavePrefixSum(reduction);
+            }
             GroupMemoryBarrierWithGroupSync();
 
-            const uint laneMask = WaveGetLaneCount() - 1;
-            g_pass[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = reduction;
+            if (gtid.x < RADIX)
+            {
+                const uint laneMask = WaveGetLaneCount() - 1;
+                g_pass[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = reduction;
+            }
             GroupMemoryBarrierWithGroupSync();
                 
             if (gtid.x < RADIX / WaveGetLaneCount())
@@ -349,7 +469,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             }
             GroupMemoryBarrierWithGroupSync();
                 
-            if (WaveGetLaneIndex())
+            if (gtid.x < RADIX && WaveGetLaneIndex())
                 g_pass[gtid.x] += WaveReadLaneAt(g_pass[gtid.x - 1], 1);
             GroupMemoryBarrierWithGroupSync();
             
@@ -371,8 +491,13 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                     offsets[i] += g_pass[ExtractDigit(keys[i])];
             }
             
+            //Dont let lookback overwrite the final histograms
+            //if WE16
+            if (WaveGetLaneCount() == 16)
+                GroupMemoryBarrierWithGroupSync();
+            
             //lookback 1 warp : 1 digit
-            if(partitionIndex)
+            if (partitionIndex)
             {
                 const uint waveParts = (WaveGetLaneCount() + 31) / 32;
                 for (uint i = getWaveIndex(gtid.x); i < RADIX; i += getWaveCountPass())
@@ -391,9 +516,9 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                             if (inclusiveBallot.x || inclusiveBallot.y || inclusiveBallot.z || inclusiveBallot.w)
                             {
                                 uint inclusiveIndex = 0;
-                                for(uint wavePart = 0; wavePart < waveParts; ++wavePart)
+                                for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
                                 {
-                                    if(countbits(inclusiveBallot[wavePart]))
+                                    if (countbits(inclusiveBallot[wavePart]))
                                     {
                                         inclusiveIndex += firstbitlow(inclusiveBallot[wavePart]);
                                         break;
@@ -409,8 +534,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                                 if (WaveGetLaneIndex() == inclusiveIndex)
                                 {
                                     InterlockedAdd(b_passHist[passHistOffset + partitionIndex], 1 | (reduction << 2));
-                                    g_pass[i + PART_SIZE] = b_globalHist[i + (e_radixShift << 5)] +
-                                        reduction - g_pass[i];
+                                    g_pass[i + PART_SIZE] = reduction;
                                 }
                                 break;
                             }
@@ -423,33 +547,203 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                     }
                 }
             }
-            else
-            {
-                g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
-                    g_pass[gtid.x];
-            }
-            GroupMemoryBarrierWithGroupSync();
-
-            //scatter keys into shared memory
-            for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-                g_pass[offsets[i]] = keys[i];
+            
+            uint exclusiveWaveReduction;
+            if (gtid.x < RADIX)
+                exclusiveWaveReduction = g_pass[gtid.x];
             GroupMemoryBarrierWithGroupSync();
             
-            //scatter keys into device
-            for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
-                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
+            if (gtid.x < RADIX)
+            {
+                if (partitionIndex)
+                    g_pass[gtid.x + PART_SIZE] += b_globalHist[gtid.x + GlobalHistOffset()] - exclusiveWaveReduction;
+                else
+                    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] - exclusiveWaveReduction;
+            }
         }
         
         if (WaveGetLaneCount() < 16)
         {
+            const uint serialIterations = (PASS_DIM / WaveGetLaneCount() + 31) / 32;
             
+            //Load keys into registers
+            [unroll]
+            for (uint i = 0, t = DeviceOffsetWLT16(gtid.x, partitionIndex, serialIterations);
+                i < KEYS_PER_THREAD;
+                ++i, t += WaveGetLaneCount())
+            {
+                keys[i] = b_sort[t];
+            }
+            
+            const uint ltMask = (1U << WaveGetLaneIndex()) - 1;
+            [unroll]
+            for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+            {
+                uint waveFlag = (1U << WaveGetLaneCount()) - 1;
+                
+                [unroll]
+                for (uint k = 0; k < RADIX_LOG; ++k)
+                {
+                    const bool t = keys[i] >> (k + e_radixShift) & 1;
+                    waveFlag &= (t ? 0 : 0xffffffff) ^ (uint) WaveActiveBallot(t);
+                }
+                
+                uint bits = countbits(waveFlag & ltMask);
+                const uint index = ExtractPackedIndex(keys[i]) +
+                    (getWaveIndex(gtid.x) / serialIterations * HALF_RADIX);
+                    
+                for (uint k = 0; k < serialIterations; ++k)
+                {
+                    if (getWaveIndex(gtid.x) % serialIterations == k)
+                        offsets[i] = ExtractPackedValue(g_pass[index], keys[i]) + bits;
+                    
+                    GroupMemoryBarrierWithGroupSync();
+                    if (getWaveIndex(gtid.x) % serialIterations == k && bits == 0)
+                    {
+                        InterlockedAdd(g_pass[index],
+                            countbits(waveFlag) << ExtractPackedShift(keys[i]));
+                    }
+                    GroupMemoryBarrierWithGroupSync();
+                }
+            }
+            
+            //inclusive/exclusive prefix sum up the histograms,
+            //use a blelloch scan for in place exclusive
+            uint reduction;
+            if (gtid.x < HALF_RADIX)
+            {
+                reduction = g_pass[gtid.x];
+                for (uint i = gtid.x + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX)
+                {
+                    reduction += g_pass[i];
+                    g_pass[i] = reduction - g_pass[i];
+                }
+                g_pass[gtid.x] = reduction + (reduction << 16);
+            }
+                
+            uint shift = 1;
+            for (uint j = RADIX >> 2; j > 0; j >>= 1)
+            {
+                GroupMemoryBarrierWithGroupSync();
+                for (uint i = gtid.x; i < j; i += PASS_DIM)
+                {
+                    g_pass[((((i << 1) + 2) << shift) - 1) >> 1] +=
+                            g_pass[((((i << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
+                }
+                shift++;
+            }
+            GroupMemoryBarrierWithGroupSync();
+                
+            if (gtid.x == 0)
+                g_pass[HALF_RADIX - 1] &= 0xffff;
+                
+            for (uint j = 1; j < RADIX >> 1; j <<= 1)
+            {
+                --shift;
+                GroupMemoryBarrierWithGroupSync();
+                for (uint i = gtid.x; i < j; i += PASS_DIM)
+                {
+                    const uint t = ((((i << 1) + 1) << shift) - 1) >> 1;
+                    const uint t2 = ((((i << 1) + 2) << shift) - 1) >> 1;
+                    const uint t3 = g_pass[t];
+                    g_pass[t] = (g_pass[t] & 0xffff) | (g_pass[t2] & 0xffff0000);
+                    g_pass[t2] += t3 & 0xffff0000;
+                }
+            }
+
+            GroupMemoryBarrierWithGroupSync();
+            if (gtid.x < HALF_RADIX)
+            {
+                const uint t = g_pass[gtid.x];
+                g_pass[gtid.x] = (t >> 16) + (t << 16) + (t & 0xffff0000);
+            }
+            GroupMemoryBarrierWithGroupSync();
+            
+            //Update offsets
+            if (gtid.x >= WaveGetLaneCount() * serialIterations)
+            {
+                const uint t = getWaveIndex(gtid.x) / serialIterations * HALF_RADIX;
+                [unroll]
+                for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+                {
+                    const uint t2 = ExtractPackedIndex(keys[i]);
+                    offsets[i] += ExtractPackedValue(g_pass[t2 + t] + g_pass[t2], keys[i]);
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+                    offsets[i] += ExtractPackedValue(g_pass[ExtractPackedIndex(keys[i])], keys[i]);
+            }
+            GroupMemoryBarrierWithGroupSync();
+            
+            if (partitionIndex)
+            {
+                uint spinCount = 0;
+                for (uint i = getWaveIndex(gtid.x); i < RADIX; i += getWaveCountPass())
+                {
+                    uint reduction = 0;
+                    const uint passHistOffset = PassHistOffset(i);
+                    for (uint k = partitionIndex + WaveGetLaneCount() - WaveGetLaneIndex(); k > WaveGetLaneCount();)
+                    {
+                        uint flagPayload;
+                        InterlockedOr(b_passHist[passHistOffset + k - WaveGetLaneCount() - 1], 0, flagPayload);
+                        
+                        if (WaveActiveAllTrue((flagPayload & FLAG_MASK) > FLAG_NOT_READY))
+                        {
+                            const uint inclusiveIndex = firstbitlow((uint) WaveActiveBallot((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE));
+                            
+                            if (inclusiveIndex != 0xffffffff)
+                            {
+                                reduction += WaveActiveSum(WaveGetLaneIndex() <= inclusiveIndex ? (flagPayload >> 2) : 0);
+                                
+                                if (WaveGetLaneIndex() == inclusiveIndex)
+                                {
+                                    InterlockedAdd(b_passHist[passHistOffset + partitionIndex], 1 | (reduction << 2));
+                                    g_pass[i + PART_SIZE] = reduction;
+                                }
+                                break;
+                            }
+                            else
+                            {
+                                reduction += WaveActiveSum(flagPayload >> 2);
+                                k -= WaveGetLaneCount();
+                            }
+                        }
+                        
+                        spinCount++;
+                        if(spinCount > 100000)
+                            break;
+                    }
+                }
+            }
+            
+            const uint exclusiveWaveReduction = g_pass[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
+            GroupMemoryBarrierWithGroupSync();
+            
+            if(gtid.x < RADIX)
+            {
+                if(partitionIndex)
+                    g_pass[gtid.x + PART_SIZE] += b_globalHist[gtid.x + GlobalHistOffset()] - exclusiveWaveReduction;
+                else
+                    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] - exclusiveWaveReduction;
+            }
         }
+        
+        //scatter keys into shared memory
+        for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+            g_pass[offsets[i]] = keys[i];
+        GroupMemoryBarrierWithGroupSync();
+            
+            //scatter keys into device
+        for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+            b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
     }
     
     //final partition is processed differently
     if(partitionIndex == e_threadBlocks - 1)
     {
-        GroupMemoryBarrierWithGroupSync();
         //if there is more than one partition in the
         //sort, immediately begin lookback
         if (partitionIndex)
@@ -485,7 +779,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                             reduction += WaveActiveSum(WaveGetLaneIndex() <= inclusiveIndex ? (flagPayload >> 2) : 0);
                                 
                             if (WaveGetLaneIndex() == inclusiveIndex)
-                                g_pass[i] = b_globalHist[i + (e_radixShift << 5)] + reduction;
+                                g_pass[i] = b_globalHist[i + GlobalHistOffset()] + reduction;
                             break;
                         }
                         else
@@ -499,7 +793,8 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         }
         else
         {
-            g_pass[gtid.x] = b_globalHist[gtid.x + (e_radixShift << 5)];
+            if (gtid.x < RADIX)
+                g_pass[gtid.x] = b_globalHist[gtid.x + GlobalHistOffset()];
         }
         GroupMemoryBarrierWithGroupSync();
         
@@ -522,7 +817,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 {
                     const bool t = key >> (k + e_radixShift) & 1;
                     const uint4 ballot = WaveActiveBallot(t);
-                    for (int wavePart = 0; wavePart < waveParts; ++wavePart)
+                    for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
                         waveFlags[wavePart] &= (t ? 0 : 0xffffffff) ^ ballot[wavePart];
                 }
             
@@ -537,16 +832,16 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 }
             }
             
-            for (int k = 0; k < PASS_DIM / WaveGetLaneCount(); ++k)
+            for (uint k = 0; k < PASS_DIM / WaveGetLaneCount(); ++k)
             {
                 if (getWaveIndex(gtid.x) == k && i < e_numKeys)
-                    offset = g_pass[key >> e_radixShift & RADIX_MASK] + bits;
+                    offset = g_pass[ExtractDigit(key)] + bits;
                 GroupMemoryBarrierWithGroupSync();
                 
                 if (getWaveIndex(gtid.x) == k && i < e_numKeys && bits == 0)
                 {
-                    for (int wavePart = 0; wavePart < waveParts; ++wavePart)
-                        g_pass[key >> e_radixShift & RADIX_MASK] += countbits(waveFlags[wavePart]);
+                    for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
+                        g_pass[ExtractDigit(key)] += countbits(waveFlags[wavePart]);
                 }
                 GroupMemoryBarrierWithGroupSync();
             }
@@ -572,7 +867,7 @@ if(partitionIndex)
         {
             reduction += flagPayload >> 2;
             InterlockedAdd(b_passHist[passHistOffset + partitionIndex], 1 | (reduction << 2));
-            g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] +
+            g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
                 reduction - g_pass[gtid.x];
             break;
         }
@@ -586,7 +881,7 @@ if(partitionIndex)
 }
 else
 {
-    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
+    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] -
         g_pass[gtid.x];
 }
 */
@@ -621,7 +916,7 @@ if (partitionIndex)
                     {
                         InterlockedAdd(g_pass[0], 1);
                         b_passHist[passHistOffset + partitionIndex] += 1 | (reduction << 2);
-                        g_pass[i + PART_SIZE] = b_globalHist[i + (e_radixShift << 5)] +
+                        g_pass[i + PART_SIZE] = b_globalHist[i + GlobalHistOffset()] +
                             reduction - g_pass[i];
                     }
                                 
@@ -651,7 +946,7 @@ if (partitionIndex)
 }
 else
 {
-    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + (e_radixShift << 5)] -
+    g_pass[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] -
         g_pass[gtid.x];
 }
 */

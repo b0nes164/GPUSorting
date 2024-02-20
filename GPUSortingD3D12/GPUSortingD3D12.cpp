@@ -100,19 +100,18 @@ winrt::com_ptr<ID3D12Device> InitDeviceWarp()
 
 int main()
 {
-    winrt::com_ptr<ID3D12Device> device = InitDevice();
-    //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp();
+    //winrt::com_ptr<ID3D12Device> device = InitDevice();
+    winrt::com_ptr<ID3D12Device> device = InitDeviceWarp();
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    DeviceRadixSort* dvr = new DeviceRadixSort(
+    /*DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32);
 
-    dvr->TestSort(1 << 16, 123, true, false);
-    //dvr->TestAll();
-    //dvr->BatchTiming(1 << 28, 50);
+    dvr->TestAll();
+    dvr->BatchTiming(1 << 28, 50);*/
 
     /*dvr = new DeviceRadixSort(
         device,
@@ -165,14 +164,14 @@ int main()
     //dvr->TestSort(1 << 28, 314159, false, true);
     //dvr->BatchTiming(1 << 28, 50);
 
-    /*OneSweep* oneSweep = new OneSweep(
+    OneSweep* oneSweep = new OneSweep(
         device,
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32);
 
-    uint32_t size = 268439296 + 256;
+    uint32_t size = 65535;
     oneSweep->TestSort(size, 13455, false, true);
-    oneSweep->BatchTiming(size, 1);*/
+    //oneSweep->BatchTiming(size, 50);
 	return 0;
 }

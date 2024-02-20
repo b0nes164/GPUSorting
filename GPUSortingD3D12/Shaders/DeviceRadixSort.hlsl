@@ -218,13 +218,12 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     {
         g_us[i] += g_us[i + RADIX];
         b_passHist[i * e_threadBlocks + gid.x] = g_us[i];
+        g_us[i] += WavePrefixSum(g_us[i]);
     }
     
     //Larger 16 or greater can perform a more elegant scan because 16 * 16 = 256
     if (WaveGetLaneCount() >= 16)
     {
-        for (uint i = gtid.x; i < RADIX; i += US_DIM)
-            g_us[i] += WavePrefixSum(g_us[i]);
         GroupMemoryBarrierWithGroupSync();
         
         if (gtid.x < (RADIX / WaveGetLaneCount()))
@@ -251,9 +250,6 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     if (WaveGetLaneCount() < 16)
     {
         const uint globalHistOffset = GlobalHistOffset();
-        for (uint i = gtid.x; i < RADIX; i += US_DIM)
-            g_us[i] += WavePrefixSum(g_us[i]);
-        
         if (gtid.x < WaveGetLaneCount())
         {
             const uint circularLaneShift = WaveGetLaneIndex() + 1 & 
@@ -600,9 +596,12 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             }
             
             //take advantage of barrier
-            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
-                    b_passHist[gtid.x * e_threadBlocks + gid.x] - g_ds[gtid.x];
+            //Note: Don't remove this again LEMAo
+            const uint exclusiveWaveReduction = g_ds[gtid.x];
             GroupMemoryBarrierWithGroupSync();
+            
+            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
+                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveWaveReduction;
             
             //scatter keys into shared memory
             for (uint i = 0; i < DS_KEYS_PER_THREAD; ++i)
