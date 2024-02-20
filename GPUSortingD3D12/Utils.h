@@ -8,6 +8,7 @@
  ******************************************************************************/
 #pragma once
 #include "pch.h"
+#include "GPUSorting.h"
 
 static winrt::com_ptr<ID3D12Resource> CreateBuffer(
     winrt::com_ptr<ID3D12Device> device, 

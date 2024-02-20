@@ -180,6 +180,7 @@
     <ClInclude Include="ComputeShader.h" />
     <ClInclude Include="DeviceRadixSort.h" />
     <ClInclude Include="DeviceRadixSortKernels.h" />
+    <ClInclude Include="GPUSorter.h" />
     <ClInclude Include="OneSweep.h" />
     <ClInclude Include="OneSweepKernels.h" />
     <ClInclude Include="pch.h" />

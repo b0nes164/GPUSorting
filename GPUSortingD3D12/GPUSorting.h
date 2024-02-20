@@ -59,8 +59,3 @@ struct GPUSortingConfig
     GPU_SORTING_KEY_TYPE sortingKeyType;
     GPU_SORTING_PAYLOAD_TYPE sortingPayloadType;
 };
-
-class GPUSorter
-{
-
-};
