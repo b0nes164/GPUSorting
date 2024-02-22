@@ -1,3 +1,12 @@
+/******************************************************************************
+ * GPUSorting
+ * Device Level 8-bit LSD Radix Sort using reduce then scan
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/21/2024
+ * https://github.com/b0nes164/GPUSorting
+ *
+ ******************************************************************************/
 #include "DeviceRadixSort.cuh"
 
 #define RADIX               256     //Number of digit bins

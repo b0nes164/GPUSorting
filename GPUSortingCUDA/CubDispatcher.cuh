@@ -1,3 +1,17 @@
+/******************************************************************************
+ * CUB Implementations
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Based off of Research by:
+ *          Andy Adinets, Nvidia Corporation
+ *          Duane Merrill, Nvidia Corporation
+ *          https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus
+ *
+ * Copyright (c) 2011, Duane Merrill.  All rights reserved.
+ * Copyright (c) 2011-2024, NVIDIA CORPORATION.  All rights reserved.
+ *
+ ******************************************************************************/
 #pragma once
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"

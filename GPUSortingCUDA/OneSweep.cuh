@@ -1,3 +1,17 @@
+/******************************************************************************
+ * GPUSorting
+ * OneSweep Implementation
+ *
+ * SPDX-License-Identifier: MIT
+ * Author:  Thomas Smith 2/21/2024
+ * https://github.com/b0nes164/GPUSorting
+ *
+ * Based off of Research by:
+ *          Andy Adinets, Nvidia Corporation
+ *          Duane Merrill, Nvidia Corporation
+ *          https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus
+ *
+ ******************************************************************************/
 #pragma once
 #include <stdio.h>
 #include <stdint.h>
