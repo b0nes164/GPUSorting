@@ -30,7 +30,7 @@ OneSweep::OneSweep(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter("OneSweep ", 4, 256, 7680, 1 << 13)
+    GPUSorter("OneSweep ", 4, 256, 3840, 1 << 13)
 {
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
@@ -100,10 +100,11 @@ void OneSweep::TestAll()
 
 void OneSweep::InitComputeShaders()
 {
-    m_initOneSweep = new InitOneSweep(m_device, m_devInfo, m_compileArguments);
+    m_initOneSweep = new OneSweepKernels::InitOneSweep(m_device, m_devInfo, m_compileArguments);
+    m_globalHist = new OneSweepKernels::GlobalHist(m_device, m_devInfo, m_compileArguments);
+    m_scan = new OneSweepKernels::Scan(m_device, m_devInfo, m_compileArguments);
+    m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments);
     m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_globalHist = new GlobalHist(m_device, m_devInfo, m_compileArguments);
-    m_digitBinningPass = new DigitBinningPass(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
 }
@@ -216,8 +217,6 @@ void OneSweep::PrepareSortCmdList()
         m_indexBuffer->GetGPUVirtualAddress(),
         m_partitions);
     UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
-    UAVBarrierSingle(m_cmdList, m_passHistBuffer);
-    UAVBarrierSingle(m_cmdList, m_indexBuffer);
 
     m_globalHist->Dispatch(
         m_cmdList,
@@ -225,8 +224,15 @@ void OneSweep::PrepareSortCmdList()
         m_globalHistBuffer->GetGPUVirtualAddress(),
         m_numKeys,
         m_partitions);
-    UAVBarrierSingle(m_cmdList, m_sortBuffer);
     UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
+
+    m_scan->Dispatch(
+        m_cmdList,
+        m_globalHistBuffer->GetGPUVirtualAddress(),
+        m_passHistBuffer->GetGPUVirtualAddress(),
+        m_partitions,
+        k_radixPasses);
+    UAVBarrierSingle(m_cmdList, m_passHistBuffer);
 
     for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
     {
@@ -234,7 +240,6 @@ void OneSweep::PrepareSortCmdList()
             m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),
-            m_globalHistBuffer->GetGPUVirtualAddress(),
             m_passHistBuffer->GetGPUVirtualAddress(),
             m_indexBuffer->GetGPUVirtualAddress(),
             m_numKeys,

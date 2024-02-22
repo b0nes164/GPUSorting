@@ -18,9 +18,10 @@ class OneSweep : public GPUSorter
 	winrt::com_ptr<ID3D12Resource> m_passHistBuffer;
 	winrt::com_ptr<ID3D12Resource> m_globalHistBuffer;
 
-	InitOneSweep* m_initOneSweep;
-	GlobalHist* m_globalHist;
-	DigitBinningPass* m_digitBinningPass;
+	OneSweepKernels::InitOneSweep* m_initOneSweep;
+	OneSweepKernels::GlobalHist* m_globalHist;
+	OneSweepKernels::Scan* m_scan;
+	OneSweepKernels::DigitBinningPass* m_digitBinningPass;
 
 public:
 	OneSweep(

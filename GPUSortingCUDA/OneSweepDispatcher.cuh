@@ -22,7 +22,6 @@ class OneSweepDispatcher
 	const uint32_t k_partitionSize = 7680;
 	const uint32_t k_globalHistPartitionSize = 65536;
 	const uint32_t k_globalHistThreads = 128;
-	const uint32_t k_scanThreads = 256;
 	const uint32_t k_binningThreads = 512;			//2080 super seems to really like 512 
 	const uint32_t k_valPartSize = 4096;
 
@@ -175,7 +174,7 @@ private:
 
 		OneSweep::GlobalHistogram <<<globalHistThreadBlocks, k_globalHistThreads >>>(m_sort, m_globalHistogram, size);
 
-		OneSweep::Scan <<<k_radixPasses, k_scanThreads >>> (m_globalHistogram, m_firstPassHistogram, m_secPassHistogram,
+		OneSweep::Scan <<<k_radixPasses, k_radix >>> (m_globalHistogram, m_firstPassHistogram, m_secPassHistogram,
 			m_thirdPassHistogram, m_fourthPassHistogram);
 
 		OneSweep::DigitBinningPass <<<binningThreadBlocks, k_binningThreads >>> (m_sort, m_alt, m_firstPassHistogram,

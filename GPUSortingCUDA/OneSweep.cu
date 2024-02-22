@@ -198,7 +198,7 @@ __global__ void OneSweep::DigitBinningPass(
         #pragma unroll
         for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
         {
-            //CUB version "match any
+            //CUB version "match any"
             /*
             unsigned warpFlags;
             #pragma unroll
