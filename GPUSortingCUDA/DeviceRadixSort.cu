@@ -36,7 +36,7 @@
 #define FLAG_INCLUSIVE      2                                       //Flag value indicating inclusive sum of a partition tile is ready
 #define FLAG_MASK           3                                       //Mask used to retrieve flag values
 
-__global__ void Upsweep(
+__global__ void DeviceRadixSort::Upsweep(
 	uint32_t* sort,
 	uint32_t* globalHist,
 	uint32_t* passHist,
@@ -97,7 +97,7 @@ __global__ void Upsweep(
 		atomicAdd(&globalHist[i + (radixShift << 5)], s_globalHist[i] + (getLaneId() ? __shfl_sync(0xfffffffe, s_globalHist[i - 1], 1) : 0));
 }
 
-__global__ void Scan(
+__global__ void DeviceRadixSort::Scan(
 	uint32_t* passHist,
 	uint32_t threadBlocks)
 {
@@ -154,7 +154,7 @@ __global__ void Scan(
 	}
 }
 
-__global__ void Downsweep(
+__global__ void DeviceRadixSort::Downsweep(
 	uint32_t* sort, 
 	uint32_t* alt, 
 	uint32_t* globalHist,

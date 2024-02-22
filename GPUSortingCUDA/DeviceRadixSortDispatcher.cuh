@@ -149,21 +149,21 @@ private:
 
 		cudaDeviceSynchronize();
 
-		Upsweep <<<threadblocks, k_upsweepThreads>>> (m_sort, m_globalHistogram, m_passHistogram, size, 0);
-		Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
-		Downsweep <<<threadblocks, k_downsweepThreads>>> (m_sort, m_alt, m_globalHistogram, m_passHistogram, size, 0);
+		DeviceRadixSort::Upsweep <<<threadblocks, k_upsweepThreads>>> (m_sort, m_globalHistogram, m_passHistogram, size, 0);
+		DeviceRadixSort::Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
+		DeviceRadixSort::Downsweep <<<threadblocks, k_downsweepThreads>>> (m_sort, m_alt, m_globalHistogram, m_passHistogram, size, 0);
 
-		Upsweep <<<threadblocks, k_upsweepThreads>>> (m_alt, m_globalHistogram, m_passHistogram, size, 8);
-		Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
-		Downsweep <<<threadblocks, k_downsweepThreads>>> (m_alt, m_sort, m_globalHistogram, m_passHistogram, size, 8);
+		DeviceRadixSort::Upsweep <<<threadblocks, k_upsweepThreads>>> (m_alt, m_globalHistogram, m_passHistogram, size, 8);
+		DeviceRadixSort::Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
+		DeviceRadixSort::Downsweep <<<threadblocks, k_downsweepThreads>>> (m_alt, m_sort, m_globalHistogram, m_passHistogram, size, 8);
 
-		Upsweep <<<threadblocks, k_upsweepThreads>>> (m_sort, m_globalHistogram, m_passHistogram, size, 16);
-		Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
-		Downsweep <<<threadblocks, k_downsweepThreads>>> (m_sort, m_alt, m_globalHistogram, m_passHistogram, size, 16);
+		DeviceRadixSort::Upsweep <<<threadblocks, k_upsweepThreads>>> (m_sort, m_globalHistogram, m_passHistogram, size, 16);
+		DeviceRadixSort::Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
+		DeviceRadixSort::Downsweep <<<threadblocks, k_downsweepThreads>>> (m_sort, m_alt, m_globalHistogram, m_passHistogram, size, 16);
 
-		Upsweep <<<threadblocks, k_upsweepThreads>>> (m_alt, m_globalHistogram, m_passHistogram, size, 24);
-		Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
-		Downsweep <<<threadblocks, k_downsweepThreads>>> (m_alt, m_sort, m_globalHistogram, m_passHistogram, size, 24);
+		DeviceRadixSort::Upsweep <<<threadblocks, k_upsweepThreads>>> (m_alt, m_globalHistogram, m_passHistogram, size, 24);
+		DeviceRadixSort::Scan <<<k_radix, k_scanThreads>>> (m_passHistogram, threadblocks);
+		DeviceRadixSort::Downsweep <<<threadblocks, k_downsweepThreads>>> (m_alt, m_sort, m_globalHistogram, m_passHistogram, size, 24);
 	}
 
 	bool DispatchValidate(uint32_t size)
