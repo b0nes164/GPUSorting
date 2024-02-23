@@ -12,6 +12,12 @@
  *          https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus
  *
  ******************************************************************************/
+//Compiler Defines
+//#define KEY_UINT KEY_INT KEY_FLOAT
+//#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
+//#define SHOULD_ASCEND
+//#define SORT_PAIRS
+//#define ENABLE_16_BIT
 
 //General macros 
 #define PART_SIZE           3840U   //size of a partition tile
@@ -49,11 +55,31 @@ cbuffer cbParallelSort : register(b0)
     uint padding;
 };
 
-RWStructuredBuffer<uint> b_sort                         : register(u0); //buffer to sort
-RWStructuredBuffer<uint> b_alt                          : register(u1); //double buffer
-RWStructuredBuffer<uint> b_globalHist                   : register(u2); //buffer holding device level offsets for each binning pass
-globallycoherent RWStructuredBuffer<uint> b_passHist    : register(u3); //buffer used to store reduced sums of partition tiles
-globallycoherent RWStructuredBuffer<uint> b_index       : register(u4); //buffer used to atomically assign partition tile indexes
+#if defined(KEY_UINT)
+RWStructuredBuffer<uint> b_sort         : register(u0);
+RWStructuredBuffer<uint> b_alt          : register(u1);
+#elif defined(KEY_INT)
+RWStructuredBuffer<int> b_sort          : register(u0);
+RWStructuredBuffer<int> b_alt           : register(u1);
+#elif defined(KEY_FLOAT)
+RWStructuredBuffer<float> b_sort        : register(u0);
+RWStructuredBuffer<float> b_alt         : register(u1);
+#endif
+
+#if defined(PAYLOAD_UINT)
+RWStructuredBuffer<uint> b_sortPayload  : register(u2);
+RWStructuredBuffer<uint> b_altPayload   : register(u3);
+#elif defined(PAYLOAD_INT)
+RWStructuredBuffer<int> b_sortPayload   : register(u2);
+RWStructuredBuffer<int> b_altPayload    : register(u3);
+#elif defined(PAYLOAD_FLOAT)
+RWStructuredBuffer<float> b_sortPayload : register(u2);
+RWStructuredBuffer<float> b_altPayload  : register(u3);
+#endif
+
+RWStructuredBuffer<uint> b_globalHist                   : register(u4); //buffer holding device level offsets for each binning pass
+globallycoherent RWStructuredBuffer<uint> b_passHist    : register(u5); //buffer used to store reduced sums of partition tiles
+globallycoherent RWStructuredBuffer<uint> b_index       : register(u6); //buffer used to atomically assign partition tile indexes
 
 groupshared uint4 g_gHist[RADIX * 2];   //Shared memory for GlobalHistogram
 groupshared uint g_scan[RADIX];         //Shared memory for Scan  
@@ -62,6 +88,30 @@ groupshared uint g_pass[MAX_PASS_SMEM]; //Shared memory for DigitBinningPass
 inline uint getWaveIndex(uint gtid)
 {
     return gtid / WaveGetLaneCount();
+}
+
+//Radix Tricks by Michael Herf
+//http://stereopsis.com/radix.html
+inline uint FloatToUint(float f)
+{
+    uint mask = -((int) (asuint(f) >> 31)) | 0x80000000;
+    return asuint(f) ^ mask;
+}
+
+inline float UintToFloat(uint u)
+{
+    uint mask = ((u >> 31) - 1) | 0x80000000;
+    return asfloat(u ^ mask);
+}
+
+inline uint IntToUint(int i)
+{
+    return asuint(i ^ 0x80000000);
+}
+
+inline int UintToInt(uint u)
+{
+    return asint(u ^ 0x80000000);
 }
 
 inline uint getWaveCountPass()
@@ -126,19 +176,19 @@ inline uint DeviceOffsetWLT16(uint gtid, uint gid, uint _serialIterations)
     return SharedOffsetWLT16(gtid, _serialIterations) + gid * PART_SIZE;
 }
 
-inline uint PassHistOffset(uint index)
-{
-    return (((e_radixShift >> 3) * e_threadBlocks) + index) << RADIX_LOG;
-}
-
 inline uint GlobalHistOffset()
 {
     return e_radixShift << 5;
 }
 
-inline uint IndexOffset()
+inline uint CurrentPass()
 {
     return e_radixShift >> 3;
+}
+
+inline uint PassHistOffset(uint index)
+{
+    return ((CurrentPass() * e_threadBlocks) + index) << RADIX_LOG;
 }
 
 inline uint WaveHistsSizeWGE16()
@@ -179,9 +229,17 @@ void GlobalHistogram(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     const uint histOffset = gtid.x / 64 * RADIX;
     const uint partitionEnd = gid.x == e_threadBlocks - 1 ?
         e_numKeys : (gid.x + 1) * PART_SIZE;
+    
+    uint t;
     for (uint i = gtid.x + gid.x * PART_SIZE; i < partitionEnd; i += G_HIST_DIM)
     {
-        const uint t = b_sort[i];
+#if defined(KEY_UINT)
+        t = b_sort[i];
+#elif defined(KEY_INT)
+        t = IntToUint(b_sort[i]);
+#elif defined(KEY_FLOAT)
+        t = FloatToUint(b_sort[i]);
+#endif
         InterlockedAdd(g_gHist[ExtractDigit(t, 0) + histOffset].x, 1);
         InterlockedAdd(g_gHist[ExtractDigit(t, 8) + histOffset].y, 1);
         InterlockedAdd(g_gHist[ExtractDigit(t, 16) + histOffset].z, 1);
@@ -275,6 +333,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
 {
     uint partitionIndex;
     
+    //Atomically assign partition tiles
     //WGT16 can clear shared memory early and does not need an extra barrier
     if (WaveGetLaneCount() > 16)
     {
@@ -283,7 +342,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             g_pass[i] = 0;
         
         if (gtid.x == 0)
-            InterlockedAdd(b_index[IndexOffset()], 1, g_pass[PART_SIZE - 1]);
+            InterlockedAdd(b_index[CurrentPass()], 1, g_pass[PART_SIZE - 1]);
         GroupMemoryBarrierWithGroupSync();
         partitionIndex = g_pass[PART_SIZE - 1];
     }
@@ -291,10 +350,10 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     if (WaveGetLaneCount() <= 16)
     {
         if (gtid.x == 0)
-            InterlockedAdd(b_index[IndexOffset()], 1, g_pass[0]);
+            InterlockedAdd(b_index[CurrentPass()], 1, g_pass[0]);
         GroupMemoryBarrierWithGroupSync();
         partitionIndex = g_pass[0];
-        GroupMemoryBarrierWithGroupSync();  //painful but necessary
+        GroupMemoryBarrierWithGroupSync();
         
         for (uint i = gtid.x; i < MAX_PASS_SMEM; i += PASS_DIM)
             g_pass[i] = 0;
@@ -318,7 +377,13 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 i < KEYS_PER_THREAD;
                 ++i, t += WaveGetLaneCount())
             {
+#if defined(KEY_UINT)
                 keys[i] = b_sort[t];
+#elif defined(KEY_INT)
+                keys[i] = UintToInt(b_sort[t]);
+#elif defined(KEY_FLOAT)
+                keys[i] = FloatToUint(b_sort[t]);
+#endif
             }
             
             //WLMS
@@ -361,27 +426,20 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 GroupMemoryBarrierWithGroupSync();
             }
             
-            uint reduction;
-            if (gtid.x < RADIX)
+            uint histReduction = g_pass[gtid.x];
+            for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
             {
-                reduction = g_pass[gtid.x];
-                for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
-                {
-                    reduction += g_pass[i];
-                    g_pass[i] = reduction - g_pass[i];
-                }
-            
-                InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
-                    FLAG_REDUCTION | reduction << 2);
-                reduction += WavePrefixSum(reduction);
+                histReduction += g_pass[i];
+                g_pass[i] = histReduction - g_pass[i];
             }
+            
+            InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
+                    FLAG_REDUCTION | histReduction << 2);
+            histReduction += WavePrefixSum(histReduction);
             GroupMemoryBarrierWithGroupSync();
 
-            if (gtid.x < RADIX)
-            {
-                const uint laneMask = WaveGetLaneCount() - 1;
-                g_pass[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = reduction;
-            }
+            const uint laneMask = WaveGetLaneCount() - 1;
+            g_pass[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = histReduction;
             GroupMemoryBarrierWithGroupSync();
                 
             if (gtid.x < RADIX / WaveGetLaneCount())
@@ -391,7 +449,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             }
             GroupMemoryBarrierWithGroupSync();
                 
-            if (gtid.x < RADIX && WaveGetLaneIndex())
+            if (WaveGetLaneIndex())
                 g_pass[gtid.x] += WaveReadLaneAt(g_pass[gtid.x - 1], 1);
             GroupMemoryBarrierWithGroupSync();
             
@@ -413,9 +471,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                     offsets[i] += g_pass[ExtractDigit(keys[i])];
             }
             
-            uint exclusiveReduction;
-            if(gtid.x < RADIX)
-                exclusiveReduction = g_pass[gtid.x];
+            const uint exclusiveHistReduction = g_pass[gtid.x];
             GroupMemoryBarrierWithGroupSync();
             
             //Scatter keys
@@ -423,28 +479,148 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 g_pass[offsets[i]] = keys[i];
 
             //Lookback
-            if(gtid.x < RADIX)
+            uint lookbackReduction = 0;
+            for (uint k = partitionIndex; k >= 0;)
             {
-                uint reduction = 0;
-                for(uint k = partitionIndex; k >= 0;)
+                const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
+                if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
                 {
-                    const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
-                    if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
-                    {
-                        reduction += flagPayload >> 2;
-                        InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
-                            1 | reduction << 2);
-                        g_pass[gtid.x + PART_SIZE] = reduction - exclusiveReduction;
-                        break;
-                    }
+                    lookbackReduction += flagPayload >> 2;
+                    InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
+                            1 | lookbackReduction << 2);
+                    g_pass[gtid.x + PART_SIZE] = lookbackReduction - exclusiveHistReduction;
+                    break;
+                }
                     
-                    if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
-                    {
-                        reduction += flagPayload >> 2;
-                        k--;
-                    }
+                if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
+                {
+                    lookbackReduction += flagPayload >> 2;
+                    k--;
                 }
             }
+            GroupMemoryBarrierWithGroupSync();
+            
+#if defined(SORT_PAIRS)
+    #if defined(SHOULD_ASCEND)
+            [unroll]
+            for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                 i < KEYS_PER_THREAD;
+                 ++i, t += WaveGetLaneCount())
+            {
+                keys[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        #if defined(KEY_UINT)
+                b_alt[keys[i]] = g_pass[t];
+        #elif defined(KEY_INT)
+                b_alt[keys[i]] = UintToInt(g_pass[t]);
+        #elif defined(KEY_FLOAT)
+                b_alt[keys[i]] = UintToFloat(g_pass[t]);
+        #endif
+            }
+    #else
+            if(e_radixShift == 24)
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                        i < KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = e_numKeys - g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] - t - 1;
+        #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_pass[t];
+        #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_pass[t]);
+        #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_pass[t]);
+        #endif
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                        i < KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+            #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_pass[t];
+            #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_pass[t]);
+            #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_pass[t]);
+            #endif
+                }
+            }
+    #endif
+            GroupMemoryBarrierWithGroupSync();
+                
+            [unroll]
+            for (uint i = 0, t = DeviceOffsetWGE16(gtid.x, partitionIndex);
+                 i < KEYS_PER_THREAD; 
+                 ++i, t += WaveGetLaneCount())
+            {
+    #if defined(PAYLOAD_UINT)
+                g_pass[offsets[i]] = b_sortPayload[t];
+    #elif defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+                g_pass[offsets[i]] = asuint(b_sortPayload[t]);
+    #endif
+            }
+            GroupMemoryBarrierWithGroupSync();
+            
+            [unroll]
+            for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
+                 i < KEYS_PER_THREAD;
+                 ++i, t += WaveGetLaneCount())
+            {
+    #if defined(PAYLOAD_UINT)
+                b_altPayload[keys[i]] = g_pass[t];
+    #elif defined(PAYLOAD_INT)
+                b_altPayload[keys[i]] = asint(g_pass[t]);
+    #elif defined(PAYLOAD_FLOAT)
+                b_altPayload[keys[i]] = asfloat(g_pass[t]);
+    #endif
+            }
+#else
+    #if defined(SHOULD_ASCEND)
+            for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+            {
+        #if defined(KEY_UINT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
+        #elif defined(KEY_INT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToInt(g_pass[i]);
+        #elif defined(KEY_FLOAT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToFloat(g_pass[i]);
+        #endif
+            }
+    #else
+            if (e_radixShift == 24)
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = g_pass[i];
+            #elif defined(KEY_INT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = UintToInt(g_pass[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = UintToFloat(g_pass[i]);
+            #endif
+                }
+            }
+            else
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
+            #elif defined(KEY_INT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToInt(g_pass[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToFloat(g_pass[i]);
+            #endif
+                }
+            }
+    #endif
+#endif
         }
         
         if (WaveGetLaneCount() < 16)
@@ -457,13 +633,20 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 i < KEYS_PER_THREAD;
                 ++i, t += WaveGetLaneCount() * serialIterations)
             {
+#if defined(KEY_UINT)
                 keys[i] = b_sort[t];
+#elif defined(KEY_INT)
+                keys[i] = UintToInt(b_sort[t]);
+#elif defined(KEY_FLOAT)
+                keys[i] = FloatToUint(b_sort[t]);
+#endif
             }
             
             const uint ltMask = (1U << WaveGetLaneIndex()) - 1;
             [unroll]
             for (uint i = 0; i < KEYS_PER_THREAD; ++i)
             {
+                //If full agnostic desired, change 
                 uint waveFlag = (1U << WaveGetLaneCount()) - 1;
                 
                 [unroll]
@@ -496,19 +679,20 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             //use a blelloch scan for in place exclusive
             if (gtid.x < HALF_RADIX)
             {
-                uint reduction = g_pass[gtid.x];
-                for (uint i = gtid.x + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX)
+                //If full agnostic desired, change hist
+                uint histReduction = g_pass[gtid.x];
+                for (uint i = gtid.x + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX) 
                 {
-                    reduction += g_pass[i];
-                    g_pass[i] = reduction - g_pass[i];
+                    histReduction += g_pass[i];
+                    g_pass[i] = histReduction - g_pass[i];
                 }
-                g_pass[gtid.x] = reduction + (reduction << 16);
+                g_pass[gtid.x] = histReduction + (histReduction << 16);
                 
                 InterlockedAdd(b_passHist[(gtid.x << 1) + PassHistOffset(partitionIndex + 1)],
-                    FLAG_REDUCTION | (reduction & 0xffff) << 2);
+                    FLAG_REDUCTION | (histReduction & 0xffff) << 2);
                 
                 InterlockedAdd(b_passHist[(gtid.x << 1) + 1 + PassHistOffset(partitionIndex + 1)],
-                    FLAG_REDUCTION | (reduction >> 16 & 0xffff) << 2);
+                    FLAG_REDUCTION | (histReduction >> 16 & 0xffff) << 2);
             }
             
             uint shift = 1;
@@ -567,9 +751,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                     offsets[i] += ExtractPackedValue(g_pass[ExtractPackedIndex(keys[i])], keys[i]);
             }
             
-            uint exclusiveReduction;
-            if (gtid.x < RADIX)
-                exclusiveReduction = g_pass[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
+            const uint exclusiveHistReduction = g_pass[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
             GroupMemoryBarrierWithGroupSync();
             
             //scatter keys
@@ -577,66 +759,177 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
                 g_pass[offsets[i]] = keys[i];
             
             //Lookback
-            if (gtid.x < RADIX)
+            uint lookbackReduction = 0;
+            for (uint k = partitionIndex; k >= 0;)
             {
-                uint reduction = 0;
-                for (uint k = partitionIndex; k >= 0;)
+                const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
+                if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
                 {
-                    const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
-                    if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
-                    {
-                        reduction += flagPayload >> 2;
-                        InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
-                            1 | reduction << 2);
-                        g_pass[gtid.x + PART_SIZE] = reduction - exclusiveReduction;
-                        break;
-                    }
+                    lookbackReduction += flagPayload >> 2;
+                    InterlockedAdd(b_passHist[gtid.x + PassHistOffset(partitionIndex + 1)],
+                            1 | lookbackReduction << 2);
+                    g_pass[gtid.x + PART_SIZE] = lookbackReduction - exclusiveHistReduction;
+                    break;
+                }
                     
-                    if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
-                    {
-                        reduction += flagPayload >> 2;
-                        k--;
-                    }
+                if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
+                {
+                    lookbackReduction += flagPayload >> 2;
+                    k--;
                 }
             }
+            GroupMemoryBarrierWithGroupSync();
+
+#if defined(SORT_PAIRS)
+    #if defined(SHOULD_ASCEND)
+            [unroll]
+            for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                 i < KEYS_PER_THREAD;
+                 ++i, t += WaveGetLaneCount())
+            {
+                keys[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        #if defined(KEY_UINT)
+                b_alt[keys[i]] = g_pass[t];
+        #elif defined(KEY_INT)
+                b_alt[keys[i]] = UintToInt(g_pass[t]);
+        #elif defined(KEY_FLOAT)
+                b_alt[keys[i]] = UintToFloat(g_pass[t]);
+        #endif
+            }
+    #else
+            if(e_radixShift == 24)
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                        i < KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = e_numKeys - g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] - t - 1;
+        #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_pass[t];
+        #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_pass[t]);
+        #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_pass[t]);
+        #endif
+                }
+            }
+            else
+            {
+                [unroll]
+                for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                        i < KEYS_PER_THREAD;
+                        ++i, t += WaveGetLaneCount())
+                {
+                    keys[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+            #if defined(KEY_UINT)
+                    b_alt[keys[i]] = g_pass[t];
+            #elif defined(KEY_INT)
+                    b_alt[keys[i]] = UintToInt(g_pass[t]);
+            #elif defined(KEY_FLOAT)
+                    b_alt[keys[i]] = UintToFloat(g_pass[t]);
+            #endif
+                }
+            }
+    #endif
+            GroupMemoryBarrierWithGroupSync();
+                
+            [unroll]
+            for (uint i = 0, t = DeviceOffsetWLT16(gtid.x, partitionIndex, serialIterations);
+                 i < KEYS_PER_THREAD; 
+                 ++i, t += WaveGetLaneCount())
+            {
+    #if defined(PAYLOAD_UINT)
+                g_pass[offsets[i]] = b_sortPayload[t];
+    #elif defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+                g_pass[offsets[i]] = asuint(b_sortPayload[t]);
+    #endif
+            }
+            GroupMemoryBarrierWithGroupSync();
+            
+            [unroll]
+            for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
+                 i < KEYS_PER_THREAD;
+                 ++i, t += WaveGetLaneCount())
+            {
+    #if defined(PAYLOAD_UINT)
+                b_altPayload[keys[i]] = g_pass[t];
+    #elif defined(PAYLOAD_INT)
+                b_altPayload[keys[i]] = asint(g_pass[t]);
+    #elif defined(PAYLOAD_FLOAT)
+                b_altPayload[keys[i]] = asfloat(g_pass[t]);
+    #endif
+            }
+#else
+    #if defined(SHOULD_ASCEND)
+            for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+            {
+        #if defined(KEY_UINT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
+        #elif defined(KEY_INT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToInt(g_pass[i]);
+        #elif defined(KEY_FLOAT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToFloat(g_pass[i]);
+        #endif
+            }
+    #else
+            if (e_radixShift == 24)
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = g_pass[i];
+            #elif defined(KEY_INT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = UintToInt(g_pass[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[e_numKeys - g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] - i - 1] = UintToFloat(g_pass[i]);
+            #endif
+                }
+            }
+            else
+            {
+                for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
+                {
+            #if defined(KEY_UINT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
+            #elif defined(KEY_INT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToInt(g_pass[i]);
+            #elif defined(KEY_FLOAT)
+                b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = UintToFloat(g_pass[i]);
+            #endif
+                }
+            }
+    #endif
+#endif
         }
-        GroupMemoryBarrierWithGroupSync();
-        
-        //scatter keys into device
-        for (uint i = gtid.x; i < PART_SIZE; i += PASS_DIM)
-            b_alt[g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i] = g_pass[i];
     }
     
     //final partition is processed differently
     if(partitionIndex == e_threadBlocks - 1)
     {
-        GroupMemoryBarrierWithGroupSync();
-        if(gtid.x < RADIX)
+        if (partitionIndex)
         {
-            if (partitionIndex)
+            uint lookbackReduction = 0;
+            for (uint k = partitionIndex; k >= 0;)
             {
-                uint reduction = 0;
-                for (uint k = partitionIndex; k >= 0;)
+                const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
+                if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
                 {
-                    const uint flagPayload = b_passHist[gtid.x + PassHistOffset(k)];
-                    if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
-                    {
-                        reduction += flagPayload >> 2;
-                        g_pass[gtid.x] = reduction;
-                        break;
-                    }
+                    lookbackReduction += flagPayload >> 2;
+                    g_pass[gtid.x] = lookbackReduction;
+                    break;
+                }
                     
-                    if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
-                    {
-                        reduction += flagPayload >> 2;
-                        k--;
-                    }
+                if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
+                {
+                    lookbackReduction += flagPayload >> 2;
+                    k--;
                 }
             }
-            else
-            {
-                g_pass[gtid.x] = b_passHist[gtid.x + PassHistOffset(0)] >> 2;
-            }
+        }
+        else
+        {
+            g_pass[gtid.x] = b_passHist[gtid.x + PassHistOffset(0)] >> 2;
         }
         GroupMemoryBarrierWithGroupSync();
         
@@ -648,7 +941,15 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             uint offset;
             uint bits = 0;
             if(i < e_numKeys)
+            {
+#if defined(KEY_UINT)
                 key = b_sort[i];
+#elif defined(KEY_INT)
+                key = IntToUint(b_sort[i]);
+#elif defined(KEY_FLOAT)
+                key = FloatToUint(b_sort[i]);
+#endif    
+            }
             
             uint4 waveFlags = (WaveGetLaneCount() & 31) ?
                 (1U << WaveGetLaneCount()) - 1 : 0xffffffff;
@@ -689,7 +990,48 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             }
 
             if (i < e_numKeys)
+            {
+#if defined (SHOULD_ASCEND)
+    #if defined(KEY_UINT)
                 b_alt[offset] = key;
+    #elif defined(KEY_INT)
+                b_alt[offset] = UintToInt(key);
+    #elif defined(KEY_FLOAT)
+                b_alt[offset] = UintToFloat(key);
+    #endif
+                
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+                b_altPayload[offset] = b_sortPayload[i];
+    #endif
+#else
+                if (e_radixShift == 24)
+                {
+    #if defined(KEY_UINT)
+                    b_alt[e_numKeys - offset - 1] = key;
+    #elif defined(KEY_INT)
+                    b_alt[e_numKeys - offset - 1] = UintToInt(key);
+    #elif defined(KEY_FLOAT)
+                    b_alt[e_numKeys - offset - 1] = UintToFloat(key);
+    #endif
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+                    b_altPayload[e_numKeys - offset - 1] = b_sortPayload[i];
+    #endif   
+                }
+                else
+                {
+    #if defined(KEY_UINT)
+                    b_alt[offset] = key;
+    #elif defined(KEY_INT)
+                    b_alt[offset] = UintToInt(key);
+    #elif defined(KEY_FLOAT)
+                    b_alt[offset] = UintToFloat(key);
+    #endif
+    #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
+                    b_altPayload[offset] = b_sortPayload[i];
+    #endif   
+                }
+#endif
+            }
         }
     }
 }

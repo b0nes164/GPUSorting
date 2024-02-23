@@ -18,7 +18,8 @@ struct DeviceInfo
     uint32_t SIMDMaxWidth;
     bool SupportsWaveIntrinsics;
     bool Supports16BitTypes;
-    bool SupportsGPUSort;
+    bool SupportsDeviceRadixSort;
+    bool SupportsOneSweep;
 };
 
 typedef 

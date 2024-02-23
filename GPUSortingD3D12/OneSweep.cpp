@@ -15,13 +15,31 @@ OneSweep::OneSweep(
     DeviceInfo _deviceInfo, 
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType) :
-    OneSweep(
-        _device,
-        _deviceInfo,
-        sortingOrder,
-        keyType,
-        (GPU_SORTING_PAYLOAD_TYPE)3)
+    GPUSorter("OneSweep ", 4, 256, 3840, 1 << 13)
 {
+    m_device.copy_from(_device.get());
+    m_devInfo = _deviceInfo;
+    m_sortingConfig.sortingMode = GPU_SORTING_KEYS_ONLY;
+    m_sortingConfig.sortingOrder = sortingOrder;
+    m_sortingConfig.sortingKeyType = keyType;
+
+    switch (keyType)
+    {
+    case GPU_SORTING_KEY_UINT32:
+        m_compileArguments.push_back(L"-DKEY_UINT");
+        break;
+    case GPU_SORTING_KEY_INT32:
+        m_compileArguments.push_back(L"-DKEY_INT");
+        break;
+    case GPU_SORTING_KEY_FLOAT32:
+        m_compileArguments.push_back(L"-DKEY_FLOAT");
+        break;
+    }
+
+    if (sortingOrder == GPU_SORTING_ASCENDING)
+        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
+
+    Initialize();
 }
 
 OneSweep::OneSweep(
@@ -34,33 +52,42 @@ OneSweep::OneSweep(
 {
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
-    m_sortingConfig.sortingMode = GPU_SORTING_KEYS_ONLY;
+    m_sortingConfig.sortingMode = GPU_SORTING_PAIRS;
     m_sortingConfig.sortingOrder = sortingOrder;
     m_sortingConfig.sortingKeyType = keyType;
+    m_sortingConfig.sortingPayloadType = payloadType;
 
-    if (payloadType < 3)
-    {
-        printf("Warning: this OneSweep implemenation currently ");
-        printf("supports keys only. The sorter will initialize as ");
-        printf("keys only. \n");
-    }
-    
-    if (keyType != GPU_SORTING_KEY_UINT32)
-    {
-        printf("Warning: this OneSweep implemenation currently ");
-        printf("supports uint32 only. The sorter will initialize as ");
-        printf("uint32. \n");
-    }
+    m_compileArguments.push_back(L"-DSORT_PAIRS");
 
-    if (sortingOrder != GPU_SORTING_ASCENDING)
+    if (sortingOrder == GPU_SORTING_ASCENDING)
+        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
+
+    switch (keyType)
     {
-        printf("Warning: this OneSweep implemenation currently ");
-        printf("supports ascending order only. The sorter will ");
-        printf("initialize as ascending order. \n");
+    case GPU_SORTING_KEY_UINT32:
+        m_compileArguments.push_back(L"-DKEY_UINT");
+        break;
+    case GPU_SORTING_KEY_INT32:
+        m_compileArguments.push_back(L"-DKEY_INT");
+        break;
+    case GPU_SORTING_KEY_FLOAT32:
+        m_compileArguments.push_back(L"-DKEY_FLOAT");
+        break;
     }
 
-    m_compileArguments.push_back(L"-DKEY_UINT");
-    m_compileArguments.push_back(L"-DSHOULD_ASCEND");
+    switch (payloadType)
+    {
+    case GPU_SORTING_PAYLOAD_UINT32:
+        m_compileArguments.push_back(L"-DPAYLOAD_UINT");
+        break;
+    case GPU_SORTING_PAYLOAD_INT32:
+        m_compileArguments.push_back(L"-DPAYLOAD_INT");
+        break;
+    case GPU_SORTING_PAYLOAD_FLOAT32:
+        m_compileArguments.push_back(L"-DPAYLOAD_FLOAT");
+        break;
+    }
+
     Initialize();
 }
 
@@ -240,6 +267,8 @@ void OneSweep::PrepareSortCmdList()
             m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),
+            m_sortPayloadBuffer->GetGPUVirtualAddress(),
+            m_altPayloadBuffer->GetGPUVirtualAddress(),
             m_passHistBuffer->GetGPUVirtualAddress(),
             m_indexBuffer->GetGPUVirtualAddress(),
             m_numKeys,
