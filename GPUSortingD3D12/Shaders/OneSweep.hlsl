@@ -311,19 +311,28 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                 if (gtid.x < (j << laneLog))
                 {
                     b_passHist[gtid.x + passHistOffset] =
-                            (WaveReadLaneAt(g_scan[((gtid.x >> offset) << offset) - 1], 0) +
-                            ((gtid.x & (j - 1)) ? g_scan[gtid.x - 1] : 0)) << 2 | FLAG_INCLUSIVE;
+                        (WaveReadLaneAt(g_scan[((gtid.x >> offset) << offset) - 1], 0) +
+                        ((gtid.x & (j - 1)) ? g_scan[gtid.x - 1] : 0)) << 2 | FLAG_INCLUSIVE;
                 }
                 else
                 {
                     if ((gtid.x + 1) & (j - 1))
                     {
                         g_scan[gtid.x] +=
-                                WaveReadLaneAt(g_scan[((gtid.x >> offset) << offset) - 1], 0);
+                            WaveReadLaneAt(g_scan[((gtid.x >> offset) << offset) - 1], 0);
                     }
                 }
             }
             offset += laneLog;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        
+        const uint index = gtid.x + j;
+        if(index < RADIX)
+        {
+            b_passHist[index + passHistOffset] =
+                (WaveReadLaneAt(g_scan[((index >> offset) << offset) - 1], 0) +
+                ((index & (j - 1)) ? g_scan[index - 1] : 0)) << 2 | FLAG_INCLUSIVE;
         }
     }
 }
