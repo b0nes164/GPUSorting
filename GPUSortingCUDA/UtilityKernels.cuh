@@ -12,6 +12,16 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
+typedef
+enum ENTROPY_PRESET
+{
+   ENTROPY_PRESET_1 = 1,
+   ENTROPY_PRESET_2 = 2,
+   ENTROPY_PRESET_3 = 3,
+   ENTROPY_PRESET_4 = 4,
+   ENTROPY_PRESET_5 = 5,
+}   ENTROPY_PRESET;
+
 //Hybrid LCG-Tausworthe PRNG
 //From GPU GEMS 3, Chapter 37
 //Authors: Lee Howes and David Thomas 
@@ -46,6 +56,39 @@ __global__ void InitRandom(uint32_t* sort, uint32_t size, uint32_t seed)
         z3 = TAUS_STEP_3;
         z4 = LCG_STEP;
         sort[i] = HYBRID_TAUS;
+    }
+}
+
+//An Improved Supercomputer Sorting Benchmark
+//Kurt Thearling & Stephen Smith
+//Bitwise AND successive keys together to decrease entropy
+//in a way that is evenly distributed across histogramming
+//passes.
+//Number of Keys ANDed | Entropy
+//        1            |  1.0 bits
+//        2            | .811 bits
+//        3            | .544 bits
+//        4            | .337 bits
+//        5            | .201 bits
+__global__ void InitEntropyControlled(uint32_t* sort, uint32_t andCount, uint32_t size)
+{
+    const uint32_t increment =  blockDim.x * gridDim.x * andCount;
+    const uint32_t alignedEnd = size / andCount;
+    for (uint32_t i = (threadIdx.x + blockDim.x * blockIdx.x) * andCount;
+        i < alignedEnd;
+        i += increment)
+    {
+        for (uint32_t k = 1; k < andCount; ++k)
+            sort[i + k] &= sort[i + k - 1];
+    }
+
+    if (threadIdx.x == 0 && blockIdx.x == 0)
+    {
+        for (uint32_t k = 1; k < andCount; ++k)
+        {
+            if(alignedEnd + k < size)
+                sort[alignedEnd + k] &= sort[alignedEnd + k - 1];
+        }
     }
 }
 

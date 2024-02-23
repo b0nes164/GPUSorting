@@ -75,7 +75,7 @@ public:
 			return;
 		}
 
-		printf("Beginning validation test all: \n");
+		printf("Beginning GPUSorting OneSweep validation test: \n");
 		uint32_t testsPassed = 0;
 		for (uint32_t i = k_partitionSize; i < k_partitionSize * 2 + 1; ++i)
 		{
@@ -102,12 +102,12 @@ public:
 		}
 
 		if (testsPassed == k_partitionSize + 3 + 1)
-			printf("\n%u/%u All tests passed.", testsPassed, testsPassed);
+			printf("%u/%u All tests passed.\n\n", testsPassed, testsPassed);
 		else
-			printf("\n%u/%u Test failed.", testsPassed, k_partitionSize + 3 + 1);
+			printf("%u/%u Test failed.\n\n", testsPassed, k_partitionSize + 3 + 1);
 	}
 
-	void BatchTiming(uint32_t size, uint32_t batchCount, uint32_t seed)
+	void BatchTiming(uint32_t size, uint32_t batchCount, uint32_t seed, ENTROPY_PRESET entropyPreset)
 	{
 		if (size > k_maxSize)
 		{
@@ -115,7 +115,11 @@ public:
 			return;
 		}
 
-		printf("Beginning batch timing test at size %u and %u iterations. \n", size, batchCount);
+		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
+		printf("Beginning GPUSorting OneSweep batch timing test at:\n");
+		printf("Size: %u\n", size);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Test size: %u\n", batchCount);
 
 		cudaEvent_t start;
 		cudaEvent_t stop;
@@ -126,6 +130,8 @@ public:
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
 			InitRandom<<<256, 256>>>(m_sort, size, i + seed);
+			if(entropyPreset > ENTROPY_PRESET_1)
+				InitEntropyControlled<<<256, 256>>>(m_sort, entropyPreset, size);
 			cudaDeviceSynchronize();
 			cudaEventRecord(start);
 			DispatchKernels(size);
@@ -144,7 +150,7 @@ public:
 		printf("\n");
 		totalTime /= 1000.0f;
 		printf("Total time elapsed: %f\n", totalTime);
-		printf("Estimated speed at %u 32-bit elements: %E keys/sec\n", size, size / totalTime * batchCount);
+		printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", size, size / totalTime * batchCount);
 	}
 
 private:
