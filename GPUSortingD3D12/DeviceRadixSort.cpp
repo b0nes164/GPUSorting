@@ -140,11 +140,11 @@ void DeviceRadixSort::TestAll()
 
 void DeviceRadixSort::InitComputeShaders()
 {
-    m_initDeviceRadix = new InitDeviceRadixSort(m_device, m_devInfo, m_compileArguments);
+    m_initDeviceRadix = new DeviceRadixSortKernels::InitDeviceRadixSort(m_device, m_devInfo, m_compileArguments);
+    m_upsweep = new DeviceRadixSortKernels::Upsweep(m_device, m_devInfo, m_compileArguments);
+    m_scan = new DeviceRadixSortKernels::Scan(m_device, m_devInfo, m_compileArguments);
+    m_downsweep = new DeviceRadixSortKernels::Downsweep(m_device, m_devInfo, m_compileArguments);
     m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_upsweep = new Upsweep(m_device, m_devInfo, m_compileArguments);
-    m_scan = new Scan(m_device, m_devInfo, m_compileArguments);
-    m_downsweep = new Downsweep(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
     m_initScanTestValues = new InitScanTestValues(m_device, m_devInfo, m_compileArguments);

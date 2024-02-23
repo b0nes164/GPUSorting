@@ -17,10 +17,10 @@ class DeviceRadixSort : public GPUSorter
     winrt::com_ptr<ID3D12Resource> m_passHistBuffer;
     winrt::com_ptr<ID3D12Resource> m_globalHistBuffer;
 
-    InitDeviceRadixSort* m_initDeviceRadix;
-    Upsweep* m_upsweep;
-    Scan* m_scan;
-    Downsweep* m_downsweep;
+    DeviceRadixSortKernels::InitDeviceRadixSort* m_initDeviceRadix;
+    DeviceRadixSortKernels::Upsweep* m_upsweep;
+    DeviceRadixSortKernels::Scan* m_scan;
+    DeviceRadixSortKernels::Downsweep* m_downsweep;
     InitScanTestValues* m_initScanTestValues;
 
 public:
