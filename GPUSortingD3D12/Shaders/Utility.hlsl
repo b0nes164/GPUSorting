@@ -34,7 +34,7 @@ cbuffer cbParallelSort : register(b0)
     uint e_numKeys;
     uint e_threadBlocks;
     uint e_seed;
-    uint e_padding;
+    uint e_andCount;
 };
 
 #if defined(KEY_UINT)
@@ -107,6 +107,46 @@ void InitSortInput(int3 id : SV_DispatchThreadID)
         b_sortPayload[i] = asfloat(HYBRID_TAUS);
     #endif
 #endif
+    }
+}
+
+//An Improved Supercomputer Sorting Benchmark
+//Kurt Thearling & Stephen Smith
+//Bitwise AND successive keys together to decrease entropy
+//in a way that is evenly distributed across histogramming
+//passes.
+//Number of Keys ANDed | Entropy
+//        1            |  1.0 bits
+//        2            | .811 bits
+//        3            | .544 bits
+//        4            | .337 bits
+//        5            | .201 bits
+[numthreads(VAL_THREADS, 1, 1)]
+void InitEntropyControlled(int3 id : SV_DispatchThreadID)
+{
+    const uint increment = VAL_THREADS * 256;
+    const uint alignedEnd = e_numKeys / e_andCount;
+    for (uint i = id.x * e_andCount; i < alignedEnd; i += increment)
+    {
+        for (uint k = 1; k < e_andCount; ++k)
+        {
+#if defined(KEY_UINT) || defined (KEY_INT) || defined (KEY_FLOAT)
+            b_sort[i + k] &= b_sort[i + k - 1];
+#endif
+        } 
+    }
+
+    if (!id.x)
+    {
+        for (uint k = 1; k < e_andCount; ++k)
+        {
+            if (alignedEnd + k < e_numKeys)
+            {
+#if defined(KEY_UINT) || defined (KEY_INT) || defined (KEY_FLOAT)
+            b_sort[alignedEnd + k] &= b_sort[alignedEnd + k - 1];
+#endif
+            }
+        }
     }
 }
 

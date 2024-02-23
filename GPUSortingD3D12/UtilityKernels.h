@@ -59,6 +59,43 @@ public:
     }
 };
 
+class InitEntropyControlled
+{
+    ComputeShader* shader;
+public:
+
+    explicit InitEntropyControlled(
+        winrt::com_ptr<ID3D12Device> device,
+        DeviceInfo const& info,
+        std::vector<std::wstring> compileArguments)
+    {
+        auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(2);
+        rootParameters[0].InitAsConstants(4, 0);
+        rootParameters[1].InitAsUnorderedAccessView((UINT)UtilReg::Sort);
+
+        shader = new ComputeShader(
+            device,
+            info,
+            "Shaders/Utility.hlsl",
+            L"InitEntropyControlled",
+            compileArguments,
+            rootParameters);
+    }
+
+    void Dispatch(
+        winrt::com_ptr<ID3D12GraphicsCommandList> cmdList,
+        D3D12_GPU_VIRTUAL_ADDRESS sortBuffer,
+        const uint32_t& numKeys,
+        const ENTROPY_PRESET& entropyPreset)
+    {
+        std::array<uint32_t, 4> t = { numKeys, 0, 0, (uint32_t)entropyPreset };
+        shader->SetPipelineState(cmdList);
+        cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+        cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+        cmdList->Dispatch(256, 1, 1);
+    }
+};
+
 class ClearErrorCount
 {
     ComputeShader* shader;

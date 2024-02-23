@@ -29,7 +29,6 @@ enum GPU_SORTING_MODE
     GPU_SORTING_PAIRS       = 1,
 }   GPU_SORTING_MODE;
 
-
 typedef
 enum GPU_SORTING_ORDER
 {
@@ -60,3 +59,13 @@ struct GPUSortingConfig
     GPU_SORTING_KEY_TYPE sortingKeyType;
     GPU_SORTING_PAYLOAD_TYPE sortingPayloadType;
 };
+
+typedef
+enum ENTROPY_PRESET
+{
+    ENTROPY_PRESET_1 = 1,
+    ENTROPY_PRESET_2 = 2,
+    ENTROPY_PRESET_3 = 3,
+    ENTROPY_PRESET_4 = 4,
+    ENTROPY_PRESET_5 = 5,
+}   ENTROPY_PRESET;

@@ -28,6 +28,9 @@ DeviceInfo GetDeviceInfo(ID3D12Device* device)
 
     devInfo.Description = adapterDesc.Description;
 
+    bool isWarpDevice = ((adapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == DXGI_ADAPTER_FLAG_SOFTWARE) ||
+        (_wcsicmp(adapterDesc.Description, L"Microsoft Basic Render Driver") == 0);
+
     D3D12_FEATURE_DATA_SHADER_MODEL model{ D3D_SHADER_MODEL_6_7 };
     winrt::check_hresult(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &model, sizeof(model)));
 
@@ -50,8 +53,9 @@ DeviceInfo GetDeviceInfo(ID3D12Device* device)
     devInfo.SIMDLaneCount = options1.TotalLaneCount;
     devInfo.SupportsWaveIntrinsics = options1.WaveOps;
     devInfo.Supports16BitTypes = options4.Native16BitShaderOpsSupported;
-    devInfo.SupportsGPUSort = ( devInfo.SIMDWidth >= 4 && model.HighestShaderModel >= D3D_SHADER_MODEL_6_0 &&
-                                devInfo.SupportsWaveIntrinsics );
+    devInfo.SupportsDeviceRadixSort = ( devInfo.SIMDWidth >= 4 && devInfo.SupportsWaveIntrinsics &&
+        model.HighestShaderModel >= D3D_SHADER_MODEL_6_0 );
+    devInfo.SupportsOneSweep = devInfo.SupportsDeviceRadixSort && !isWarpDevice;
 
 #ifdef _DEBUG
     std::wcout << L"Device:                  " << devInfo.Description << L"\n";
@@ -61,7 +65,8 @@ DeviceInfo GetDeviceInfo(ID3D12Device* device)
     std::cout << "Total lanes:               " << devInfo.SIMDLaneCount << "\n";
     std::cout << "Supports Wave Intrinsics:  " << (devInfo.SupportsWaveIntrinsics ? "Yes" : "No") << "\n";
     std::cout << "Supports 16Bit Types:      " << (devInfo.Supports16BitTypes ? "Yes" : "No") << "\n";
-    std::cout << "Supports GPUSort:          " << (devInfo.SupportsGPUSort ? "Yes" : "No") << "\n";
+    std::cout << "Supports DeviceRadixSort:  " << (devInfo.SupportsDeviceRadixSort ? "Yes" : "No") << "\n";
+    std::cout << "Supports OneSweep:         " << (devInfo.SupportsOneSweep ? "Yes" : "No") << "\n";
 #endif
 
     return devInfo;
@@ -101,76 +106,27 @@ winrt::com_ptr<ID3D12Device> InitDeviceWarp()
 int main()
 {
     winrt::com_ptr<ID3D12Device> device = InitDevice();
-    //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp();
+    //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    /*DeviceRadixSort* dvr = new DeviceRadixSort(
+    DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);*/
-    //dvr->TestAll();
-    //dvr->TestSort(1 << 28, 12345, false, true);
-    //dvr->BatchTiming(1 << 28, 25);
+        GPU_SORTING_PAYLOAD_UINT32);
+    dvr->TestAll();
+    dvr->BatchTiming(1 << 28, 25, 10, ENTROPY_PRESET_1);
+    dvr->~DeviceRadixSort();
 
     OneSweep* oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
-    oneSweep->TestAll();
-    //oneSweep->TestSort(1 << 28, 13455, false, true);
-    //oneSweep->BatchTiming(1 << 28, 25);
-
-    /*dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_DESCENDING,
+        GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
-    dvr->TestAll();
+    oneSweep->TestAll();
+    oneSweep->BatchTiming(1 << 28, 25, 10, ENTROPY_PRESET_1);
 
-    dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
-    dvr->TestAll();
-
-    dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
-    dvr->TestAll();
-
-    dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
-    dvr->TestAll();
-
-    dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
-    dvr->TestAll();
-
-    dvr = new DeviceRadixSort(
-        device,
-        deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
-    dvr->TestAll();*/
-    
-	return 0;
+    return 0;
 }

@@ -46,6 +46,7 @@ protected:
     winrt::com_ptr<ID3D12Resource> m_readBackBuffer;
 
     InitSortInput* m_initSortInput;
+    InitEntropyControlled* m_initEntropy;
     ClearErrorCount* m_clearErrorCount;
     Validate* m_validate;
 
@@ -85,7 +86,7 @@ public:
             m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortBuffer.get(), 0, readBackSize * sizeof(uint32_t));
             ReadbackPostBarrier(m_cmdList, m_sortBuffer);
             ExecuteCommandList();
-            std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, readBackSize);
+            std::vector<uint32_t> vecOut = ReadBackBuffer(m_readBackBuffer, (uint32_t)readBackSize);
 
             printf("---------------KEYS---------------\n");
             for (uint32_t i = 0; i < vecOut.size(); ++i)
@@ -94,7 +95,7 @@ public:
             if (m_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
             {
                 ReadbackPreBarrier(m_cmdList, m_sortPayloadBuffer);
-                m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, readBackSize * sizeof(uint32_t));
+                m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, (uint32_t)readBackSize * sizeof(uint32_t));
                 ReadbackPostBarrier(m_cmdList, m_sortPayloadBuffer);
                 ExecuteCommandList();
                 vecOut = ReadBackBuffer(m_readBackBuffer, readBackSize);
@@ -107,15 +108,22 @@ public:
         }
     }
 
-    void BatchTiming(uint32_t inputSize, uint32_t batchSize)
+    void BatchTiming(uint32_t inputSize, uint32_t batchSize, uint32_t seed, ENTROPY_PRESET entropyPreset)
     {
         UpdateSize(inputSize);
 
-        printf("Beginning timing test \n");
+        const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
+        printf("Beginning ");
+        printf(k_sortName);
+        PrintSortingConfig(m_sortingConfig);
+        printf("batch timing test at:\n");
+        printf("Size: %u\n", inputSize);
+        printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+        printf("Test size: %u\n", batchSize);
         double totalTime = 0.0;
         for (uint32_t i = 0; i <= batchSize; ++i)
         {
-            double t = TimeSort(i + 10);
+            double t = TimeSort(i + seed, entropyPreset);
             if (i)
                 totalTime += t;
 
@@ -124,8 +132,8 @@ public:
         }
         printf("\n");
 
-        totalTime = inputSize / totalTime * batchSize;
-        printf("Estimated speed at %u iterations and %u keys: %E \n", batchSize, inputSize, totalTime);
+        printf("Total time elapsed: %f\n", totalTime);
+        printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", inputSize, inputSize / totalTime * batchSize);
     }
 
     virtual void TestAll() = 0;
@@ -178,12 +186,36 @@ protected:
     void CreateTestInput(uint32_t seed)
     {
         //Init the sorting input
-        m_initSortInput->Dispatch(m_cmdList,
+        m_initSortInput->Dispatch(
+            m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_numKeys,
             seed);
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
+        ExecuteCommandList();
+    }
+
+    void CreateTestInput(uint32_t seed, ENTROPY_PRESET entropyPreset)
+    {
+        //Init the sorting input
+        m_initSortInput->Dispatch(
+            m_cmdList,
+            m_sortBuffer->GetGPUVirtualAddress(),
+            m_sortPayloadBuffer->GetGPUVirtualAddress(),
+            m_numKeys,
+            seed);
+        UAVBarrierSingle(m_cmdList, m_sortBuffer);
+
+        if (entropyPreset > ENTROPY_PRESET_1)
+        {
+            m_initEntropy->Dispatch(
+                m_cmdList,
+                m_sortBuffer->GetGPUVirtualAddress(),
+                m_numKeys,
+                entropyPreset);
+            UAVBarrierSingle(m_cmdList, m_sortBuffer);
+        }
         ExecuteCommandList();
     }
 
@@ -204,11 +236,13 @@ protected:
 
     bool ValidateOutput(bool shouldPrint)
     {
-        m_clearErrorCount->Dispatch(m_cmdList,
+        m_clearErrorCount->Dispatch(
+            m_cmdList,
             m_errorCountBuffer->GetGPUVirtualAddress());
         UAVBarrierSingle(m_cmdList, m_errorCountBuffer);
 
-        m_validate->Dispatch(m_cmdList,
+        m_validate->Dispatch(
+            m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_errorCountBuffer->GetGPUVirtualAddress(),
@@ -244,9 +278,9 @@ protected:
         return ValidateOutput(false);
     }
 
-    double TimeSort(uint32_t seed)
+    double TimeSort(uint32_t seed, ENTROPY_PRESET entropyPreset)
     {
-        CreateTestInput(seed);
+        CreateTestInput(seed, entropyPreset);
         m_cmdList->EndQuery(m_queryHeap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
         PrepareSortCmdList();
         m_cmdList->EndQuery(m_queryHeap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);

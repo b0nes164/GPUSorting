@@ -17,6 +17,10 @@ OneSweep::OneSweep(
     GPU_SORTING_KEY_TYPE keyType) :
     GPUSorter("OneSweep ", 4, 256, 3840, 1 << 13)
 {
+    //TODO: better exception handling
+    if (!_deviceInfo.SupportsOneSweep)
+        printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
+    
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
     m_sortingConfig.sortingMode = GPU_SORTING_KEYS_ONLY;
@@ -50,6 +54,10 @@ OneSweep::OneSweep(
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
     GPUSorter("OneSweep ", 4, 256, 7680, 1 << 13)
 {
+    //TODO: better exception handling
+    if (!_deviceInfo.SupportsOneSweep)
+        printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
+
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
     m_sortingConfig.sortingMode = GPU_SORTING_PAIRS;
@@ -91,6 +99,10 @@ OneSweep::OneSweep(
     Initialize();
 }
 
+OneSweep::~OneSweep()
+{
+}
+
 void OneSweep::TestAll()
 {
     printf("Beginning ");
@@ -120,9 +132,9 @@ void OneSweep::TestAll()
 
     uint32_t totalTests = k_partitionSize + 1 + 3;
     if (sortPayloadTestsPassed == totalTests)
-        printf("%u / %u  All tests passed. \n", totalTests, totalTests);
+        printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
     else
-        printf("%u / %u  Test failed. \n", sortPayloadTestsPassed, totalTests);
+        printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
 }
 
 void OneSweep::InitComputeShaders()
@@ -132,6 +144,7 @@ void OneSweep::InitComputeShaders()
     m_scan = new OneSweepKernels::Scan(m_device, m_devInfo, m_compileArguments);
     m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments);
     m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
+    m_initEntropy = new InitEntropyControlled(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
 }

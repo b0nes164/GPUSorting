@@ -37,6 +37,8 @@ public:
         GPU_SORTING_KEY_TYPE keyType,
         GPU_SORTING_PAYLOAD_TYPE payloadType);
 
+    ~DeviceRadixSort();
+
     void TestAll() override;
 
 protected:
