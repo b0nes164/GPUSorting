@@ -15,11 +15,15 @@
 //#define ENABLE_16_BIT
 
 //General macros 
-#define PART_SIZE       3840U   //size of a partition tile
-
+#if defined(SORT_PAIRS)
+    #define PART_SIZE   7680U   //size of a partition tile
+    #define DS_DIM      512U    //The number of threads int digit binning pass
+#else
+    #define PART_SIZE   3840U
+    #define DS_DIM      256U
+#endif
 #define US_DIM          128U    //The number of threads in a Upsweep threadblock
 #define SCAN_DIM        128U    //The number of threads in a Scan threadblock
-#define DS_DIM          256U    //The number of threads in a Downsweep threadblock
 
 #define RADIX           256U    //Number of digit bins
 #define RADIX_MASK      255U    //Mask of digit bins
@@ -30,7 +34,11 @@
 
 //For the downsweep kernels
 #define DS_KEYS_PER_THREAD  15U     //The number of keys per thread in a Downsweep Threadblock
-#define MAX_DS_SMEM         4096U   //shared memory for downsweep kernel
+#if defined(SORT_PAIRS)
+    #define MAX_DS_SMEM   8192U   //shared memory for DigitBinningPass kernel
+#else
+    #define MAX_DS_SMEM   4096U   //shared memory for DigitBinningPass kernel
+#endif
 
 cbuffer cbParallelSort : register(b0)
 {
@@ -536,18 +544,25 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             
             //inclusive/exclusive prefix sum up the histograms
             //followed by exclusive prefix sum across the reductions
-            uint reduction = g_ds[gtid.x];
-            for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
+            uint histReduction;
+            if (gtid.x < RADIX)
             {
-                reduction += g_ds[i];
-                g_ds[i] = reduction - g_ds[i];
-            }
+                histReduction = g_ds[gtid.x];
+                for (uint i = gtid.x + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
+                {
+                    histReduction += g_ds[i];
+                    g_ds[i] = histReduction - g_ds[i];
+                }
             
-            reduction += WavePrefixSum(reduction);
+                histReduction += WavePrefixSum(histReduction);
+            }
             GroupMemoryBarrierWithGroupSync();
 
-            const uint laneMask = WaveGetLaneCount() - 1;
-            g_ds[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = reduction;
+            if(gtid.x < RADIX)
+            {
+                const uint laneMask = WaveGetLaneCount() - 1;
+                g_ds[((WaveGetLaneIndex() + 1) & laneMask) + (gtid.x & ~laneMask)] = histReduction;
+            }
             GroupMemoryBarrierWithGroupSync();
                 
             if (gtid.x < RADIX / WaveGetLaneCount())
@@ -557,7 +572,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             }
             GroupMemoryBarrierWithGroupSync();
                 
-            if (WaveGetLaneIndex())
+            if (gtid.x < RADIX && WaveGetLaneIndex())
                 g_ds[gtid.x] += WaveReadLaneAt(g_ds[gtid.x - 1], 1);
             GroupMemoryBarrierWithGroupSync();
         
@@ -581,15 +596,20 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             
             //take advantage of barrier
             //Note: Don't remove this again LEMAo
-            const uint exclusiveWaveReduction = g_ds[gtid.x];
+            uint exclusiveHistReduction;
+            if(gtid.x < RADIX)
+                exclusiveHistReduction = g_ds[gtid.x];
             GroupMemoryBarrierWithGroupSync();
-            
-            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
-                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveWaveReduction;
             
             //scatter keys into shared memory
             for (uint i = 0; i < DS_KEYS_PER_THREAD; ++i)
                 g_ds[offsets[i]] = keys[i];
+            
+            if(gtid.x < RADIX)
+            {
+                g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
+                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveHistReduction;
+            }
             GroupMemoryBarrierWithGroupSync();
             
 #if defined(SORT_PAIRS)
@@ -841,15 +861,20 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                     offsets[i] += ExtractPackedValue(g_ds[ExtractPackedIndex(keys[i])], keys[i]);
             }
             
-            const uint exclusiveWaveReduction = g_ds[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
+            uint exclusiveHistReduction;
+            if(gtid.x < RADIX)
+                exclusiveHistReduction = g_ds[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
             GroupMemoryBarrierWithGroupSync();
             
             //scatter keys into shared memory
             for (uint i = 0; i < DS_KEYS_PER_THREAD; ++i)
                 g_ds[offsets[i]] = keys[i];
         
-            g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
-                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveWaveReduction;
+            if(gtid.x < RADIX)
+            {
+                g_ds[gtid.x + PART_SIZE] = b_globalHist[gtid.x + GlobalHistOffset()] +
+                    b_passHist[gtid.x * e_threadBlocks + gid.x] - exclusiveHistReduction;
+            }
             GroupMemoryBarrierWithGroupSync();
         
             //scatter runs of keys into device memory, 

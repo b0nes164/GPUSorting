@@ -22,17 +22,12 @@
 //General macros
 #if defined(SORT_PAIRS)
     #define PART_SIZE       7680U   //size of a partition tile
-#else
-    #define PART_SIZE       3840U
-#endif
-
-#define G_HIST_DIM          128U    //The number of threads in a global hist threadblock
-
-#if defined(SORT_PAIRS)
     #define PASS_DIM        512U    //The number of threads int digit binning pass
 #else
+    #define PART_SIZE       3840U
     #define PASS_DIM        256U
 #endif
+#define G_HIST_DIM          128U    //The number of threads in a global hist threadblock
 
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins

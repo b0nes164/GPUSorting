@@ -48,7 +48,7 @@ DeviceRadixSort::DeviceRadixSort(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter("DeviceRadixSort ", 4, 256, 3840, 1 << 13)
+    GPUSorter("DeviceRadixSort ", 4, 256, 7680, 1 << 13)
 {
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;
@@ -111,7 +111,7 @@ void DeviceRadixSort::TestAll()
     printf("\n");
     printf("%u / %u passed. \n", sortPayloadTestsPassed, k_partitionSize + 1);
 
-    UpdateSize(1 << 21); //TODO: BAD!
+    UpdateSize(1 << 22); //TODO: BAD!
     printf("Beginning interthreadblock scan validation tests. \n");
     uint32_t scanTestsPassed = 0;
     for (uint32_t i = 1; i < 256; ++i)
