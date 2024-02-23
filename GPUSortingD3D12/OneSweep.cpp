@@ -48,7 +48,7 @@ OneSweep::OneSweep(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter("OneSweep ", 4, 256, 3840, 1 << 13)
+    GPUSorter("OneSweep ", 4, 256, 7680, 1 << 13)
 {
     m_device.copy_from(_device.get());
     m_devInfo = _deviceInfo;

@@ -12,7 +12,7 @@
 
 namespace OneSweepKernels
 {
-    enum class OneSweepReg
+    enum class Reg
     {
         Sort = 0,
         Alt = 1,
@@ -34,9 +34,9 @@ namespace OneSweepKernels
         {
             auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(4);
             rootParameters[0].InitAsConstants(4, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)OneSweepReg::GlobalHist);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)OneSweepReg::PassHist);
-            rootParameters[3].InitAsUnorderedAccessView((UINT)OneSweepReg::Index);
+            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::GlobalHist);
+            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::PassHist);
+            rootParameters[3].InitAsUnorderedAccessView((UINT)Reg::Index);
 
             shader = new ComputeShader(
                 device,
@@ -75,8 +75,8 @@ namespace OneSweepKernels
         {
             auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
             rootParameters[0].InitAsConstants(4, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)OneSweepReg::Sort);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)OneSweepReg::GlobalHist);
+            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::Sort);
+            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::GlobalHist);
 
             shader = new ComputeShader(
                 device,
@@ -115,8 +115,8 @@ namespace OneSweepKernels
         {
             auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
             rootParameters[0].InitAsConstants(4, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)OneSweepReg::GlobalHist);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)OneSweepReg::PassHist);
+            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::GlobalHist);
+            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::PassHist);
 
             shader = new ComputeShader(
                 device,
@@ -154,12 +154,12 @@ namespace OneSweepKernels
         {
             auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(7);
             rootParameters[0].InitAsConstants(4, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)OneSweepReg::Sort);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)OneSweepReg::Alt);
-            rootParameters[3].InitAsUnorderedAccessView((UINT)OneSweepReg::SortPayload);
-            rootParameters[4].InitAsUnorderedAccessView((UINT)OneSweepReg::AltPayload);
-            rootParameters[5].InitAsUnorderedAccessView((UINT)OneSweepReg::PassHist);
-            rootParameters[6].InitAsUnorderedAccessView((UINT)OneSweepReg::Index);
+            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::Sort);
+            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::Alt);
+            rootParameters[3].InitAsUnorderedAccessView((UINT)Reg::SortPayload);
+            rootParameters[4].InitAsUnorderedAccessView((UINT)Reg::AltPayload);
+            rootParameters[5].InitAsUnorderedAccessView((UINT)Reg::PassHist);
+            rootParameters[6].InitAsUnorderedAccessView((UINT)Reg::Index);
 
             shader = new ComputeShader(
                 device,
