@@ -258,10 +258,10 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         uint j = WaveGetLaneCount();
         for (; j < (RADIX >> 1); j <<= laneLog)
         {
-            for (uint i = gtid.x; i < (RADIX >> offset); i += US_DIM)
+            if (gtid.x < (RADIX >> offset))
             {
-                g_us[((i + 1) << offset) - 1] +=
-                    WavePrefixSum(g_us[((i + 1) << offset) - 1]);
+                g_us[((gtid.x + 1) << offset) - 1] +=
+                    WavePrefixSum(g_us[((gtid.x + 1) << offset) - 1]);
             }
             GroupMemoryBarrierWithGroupSync();
             
@@ -289,6 +289,7 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         }
         GroupMemoryBarrierWithGroupSync();
         
+        //If RADIX is not a multiple of lanecount
         for (uint i = gtid.x + j; i < RADIX; i += US_DIM)
         {
             InterlockedAdd(b_globalHist[i + globalHistOffset],
@@ -383,10 +384,10 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             uint j = WaveGetLaneCount();
             for (; j < (SCAN_DIM >> 1); j <<= laneLog)
             {
-                for (uint i = gtid.x; i < (SCAN_DIM >> offset); i += SCAN_DIM)
+                if (gtid.x < (SCAN_DIM >> offset))
                 {
-                    g_scan[((i + 1) << offset) - 1] +=
-                        WavePrefixSum(g_scan[((i + 1) << offset) - 1]);
+                    g_scan[((gtid.x + 1) << offset) - 1] +=
+                        WavePrefixSum(g_scan[((gtid.x + 1) << offset) - 1]);
                 }
                 GroupMemoryBarrierWithGroupSync();
             
@@ -411,6 +412,7 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             }
             GroupMemoryBarrierWithGroupSync();
         
+            //If SCAN_DIM is not a multiple of lanecount
             for (uint i = gtid.x + j; i < SCAN_DIM; i += SCAN_DIM)
             {
                 b_passHist[i + k * SCAN_DIM + deviceOffset] =
@@ -441,10 +443,10 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         uint offset = laneLog;
         for (uint j = WaveGetLaneCount(); j < finalPartSize; j <<= laneLog)
         {
-            for (uint i = gtid.x; i < (finalPartSize >> offset); i += SCAN_DIM)
+            if (gtid.x < (finalPartSize >> offset))
             {
-                g_scan[((i + 1) << offset) - 1] +=
-                    WavePrefixSum(g_scan[((i + 1) << offset) - 1]);
+                g_scan[((gtid.x + 1) << offset) - 1] +=
+                        WavePrefixSum(g_scan[((gtid.x + 1) << offset) - 1]);
             }
             GroupMemoryBarrierWithGroupSync();
             
@@ -915,15 +917,15 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         uint finalKeys;
         if (subPartSize > 0)
         {
-            if(subPartSize >= DS_KEYS_PER_THREAD * WaveGetLaneCount() * serialIterations)
+            if((uint)subPartSize >= DS_KEYS_PER_THREAD * WaveGetLaneCount() * serialIterations)
             {
                 finalKeys = DS_KEYS_PER_THREAD;
             }
             else
             {
-                finalKeys = (subPartSize / WaveGetLaneCount() / serialIterations);
+                finalKeys = subPartSize / WaveGetLaneCount() / serialIterations;
                 subPartSize -= finalKeys * WaveGetLaneCount() * serialIterations;
-                if(WaveGetLaneIndex() + getWaveIndex(gtid) % serialIterations * WaveGetLaneCount() < subPartSize)
+                if(WaveGetLaneIndex() + getWaveIndex(gtid.x) % serialIterations * WaveGetLaneCount() < (uint)subPartSize)
                     finalKeys++;
             }
         }
