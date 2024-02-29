@@ -115,6 +115,8 @@ void InitSortInput(int3 id : SV_DispatchThreadID)
 //Bitwise AND successive keys together to decrease entropy
 //in a way that is evenly distributed across histogramming
 //passes.
+//NOTE this will break payload validation, which assumes keys and
+//payloads have identical values.
 //Number of Keys ANDed | Entropy
 //        1            |  1.0 bits
 //        2            | .811 bits
@@ -130,9 +132,18 @@ void InitEntropyControlled(int3 id : SV_DispatchThreadID)
     {
         for (uint k = 1; k < e_andCount; ++k)
         {
-#if defined(KEY_UINT) || defined (KEY_INT) || defined (KEY_FLOAT)
+#if defined(KEY_UINT)
             b_sort[i + k] &= b_sort[i + k - 1];
+#elif defined (KEY_INT) || defined (KEY_FLOAT)
+            uint t = asuint(b_sort[i + k]);
+            t &= asuint(b_sort[i + k - 1]);
 #endif
+#if defined(KEY_INT)
+            b_sort[i + k] = asint(t);
+#elif defined(KEY_FLOAT)
+            b_sort[i + k] = asfloat(t);
+#endif
+            
         } 
     }
 
@@ -142,8 +153,16 @@ void InitEntropyControlled(int3 id : SV_DispatchThreadID)
         {
             if (alignedEnd + k < e_numKeys)
             {
-#if defined(KEY_UINT) || defined (KEY_INT) || defined (KEY_FLOAT)
+#if defined(KEY_UINT)
             b_sort[alignedEnd + k] &= b_sort[alignedEnd + k - 1];
+#elif defined (KEY_INT) || defined (KEY_FLOAT)
+            uint t = asuint(b_sort[alignedEnd + k]);
+            t &= asuint(b_sort[alignedEnd + k - 1]);
+#endif
+#if defined(KEY_INT)
+            b_sort[alignedEnd + k] = asint(t);
+#elif defined(KEY_FLOAT)
+            b_sort[alignedEnd + k] = asfloat(t);
 #endif
             }
         }
@@ -189,7 +208,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
 #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
     #if defined(SHOULD_ASCEND)
             isInvalid |= g_val[i] > g_val[i + 1];
-        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+        #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
             #if defined (KEY_UINT)
             isInvalid |= asuint(g_valPayload[i]) > asuint(g_valPayload[i + 1]);
             #elif defined(KEY_INT)
@@ -200,7 +219,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
         #endif
     #else
             isInvalid |= g_val[i] < g_val[i + 1];
-        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+        #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
             #if defined (KEY_UINT)
             isInvalid |= asuint(g_valPayload[i]) < asuint(g_valPayload[i + 1]);
             #elif defined(KEY_INT)
@@ -223,7 +242,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
 #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
     #if defined(SHOULD_ASCEND)
             isInvalid |= b_sort[i] > b_sort[i + 1];
-        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+        #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
             #if defined (KEY_UINT)
             isInvalid |= asuint(b_sortPayload[i]) > asuint(b_sortPayload[i + 1]);
             #elif defined(KEY_INT)
@@ -234,7 +253,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
         #endif
     #else
             isInvalid |= b_sort[i] < b_sort[i + 1];
-        #if defined(SORT_PAIRS) && defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
+        #if defined(SORT_PAIRS) && (defined(PAYLOAD_UINT) || defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT))
             #if defined (KEY_UINT)
             isInvalid |= asuint(b_sortPayload[i]) < asuint(b_sortPayload[i + 1]);
             #elif defined(KEY_INT)

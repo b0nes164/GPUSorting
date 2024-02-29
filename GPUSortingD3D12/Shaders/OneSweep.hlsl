@@ -427,13 +427,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             }
             else
             {
-#if defined(KEY_UINT)
                 keys[i] = 0xffffffff;
-#elif defined(KEY_INT)
-                keys[i] = UintToInt(0xffffffff);
-#elif defined(KEY_FLOAT)
-                keys[i] = FloatToUint(0xffffffff);
-#endif
             }
         }
     }
