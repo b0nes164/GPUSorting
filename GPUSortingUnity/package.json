@@ -1,0 +1,15 @@
+{
+  "author": "Thomas Smith",
+  "description": "Portable GPU sorting",
+  "displayName": "GPUSorting",
+  "keywords": [
+    "unity"
+  ],
+  "license": "MIT",
+  "name": "asdf.b0nes.b0nes",
+  "repository": "github:b0nes164/GPUSorting",
+  "documentationUrl": "https://github.com/b0nes164/GPUSorting",
+  "unity": "2021.3",
+  "unityRelease": "35f1",
+  "version": "0.1.0"
+}
