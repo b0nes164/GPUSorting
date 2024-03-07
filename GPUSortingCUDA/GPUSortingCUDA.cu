@@ -26,4 +26,7 @@ int main()
     CubDispatcher* cub = new CubDispatcher(1 << 28);
     cub->BatchTimingCubDeviceRadixSort(1 << 28, 50, 10, ENTROPY_PRESET_1);
     cub->BatchTimingCubOneSweep(1 << 28, 50, 10, ENTROPY_PRESET_1);
+    cub->~CubDispatcher();
+
+    return 0;
 }

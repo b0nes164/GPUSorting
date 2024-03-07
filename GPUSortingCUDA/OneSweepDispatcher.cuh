@@ -203,8 +203,8 @@ private:
 		cudaDeviceSynchronize();
 		Validate<<<valThreadBlocks, 256>>>(m_sort, m_errCount, size);
 
-		uint32_t* errCount = new uint32_t[1];
-		cudaMemcpy(errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+		uint32_t errCount[1];
+		cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
 		cudaDeviceSynchronize();
 
 		return !errCount[0];
