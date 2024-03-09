@@ -292,7 +292,7 @@ __global__ void OneSweep::DigitBinningPass(
         for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
             s_warpHistograms[offsets[i]] = keys[i];
   
-        //split the warps into single thread cooperative groups and lookback
+        //lookback
         if (threadIdx.x < RADIX)
         {
             uint32_t reduction = 0;
