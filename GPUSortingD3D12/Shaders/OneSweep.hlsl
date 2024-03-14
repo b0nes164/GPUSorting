@@ -230,6 +230,18 @@ inline void DeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histR
     }
 }
 
+inline void DeviceBroadcastReductionsWLT16(uint gtid, uint partIndex, uint histReduction)
+{
+    if (partIndex < e_threadBlocks - 1)
+    {
+        InterlockedAdd(b_passHist[(gtid << 1) + PassHistOffset(partIndex + 1)],
+            FLAG_REDUCTION | (histReduction & 0xffff) << 2);
+                
+        InterlockedAdd(b_passHist[(gtid << 1) + 1 + PassHistOffset(partIndex + 1)],
+            FLAG_REDUCTION | (histReduction >> 16 & 0xffff) << 2);
+    }
+}
+
 inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
 {
     if (gtid < RADIX)
@@ -326,90 +338,20 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     
     if (WaveGetLaneCount() < 16)
     {
-        //stub
-        offsets = RankKeysWGE16(gtid.x, keys);
-        GroupMemoryBarrierWithGroupSync();
+        offsets = RankKeysWLT16(gtid.x, keys, serialIterations);
             
-        //inclusive/exclusive prefix sum up the histograms,
-        //use a blelloch scan for in place exclusive
         if (gtid.x < HALF_RADIX)
         {
-            //If full agnostic desired, change hist
-            uint histReduction = g_pass[gtid.x];
-            for (uint i = gtid.x + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX)
-            {
-                histReduction += g_pass[i];
-                g_pass[i] = histReduction - g_pass[i];
-            }
-            g_pass[gtid.x] = histReduction + (histReduction << 16);
-                
-            if(partitionIndex < e_threadBlocks - 1)
-            {
-                InterlockedAdd(b_passHist[(gtid.x << 1) + PassHistOffset(partitionIndex + 1)],
-                    FLAG_REDUCTION | (histReduction & 0xffff) << 2);
-                
-                InterlockedAdd(b_passHist[(gtid.x << 1) + 1 + PassHistOffset(partitionIndex + 1)],
-                    FLAG_REDUCTION | (histReduction >> 16 & 0xffff) << 2);
-            }
+            uint histReduction = WaveHistInclusiveScanCircularShiftWLT16(gtid.x);
+            g_pass[gtid.x] = histReduction + (histReduction << 16); //take advantage of barrier to begin scan
+            DeviceBroadcastReductionsWLT16(gtid.x, partitionIndex, histReduction);
         }
             
-        uint shift = 1;
-        for (uint j = RADIX >> 2; j > 0; j >>= 1)
-        {
-            GroupMemoryBarrierWithGroupSync();
-            if (gtid.x < j)
-            {
-                g_pass[((((gtid.x << 1) + 2) << shift) - 1) >> 1] +=
-                        g_pass[((((gtid.x << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
-            }
-            shift++;
-        }
-        GroupMemoryBarrierWithGroupSync();
-                
-        if (gtid.x == 0)
-            g_pass[HALF_RADIX - 1] &= 0xffff;
-                
-        for (uint j = 1; j < RADIX >> 1; j <<= 1)
-        {
-            --shift;
-            GroupMemoryBarrierWithGroupSync();
-            if (gtid.x < j)
-            {
-                const uint t = ((((gtid.x << 1) + 1) << shift) - 1) >> 1;
-                const uint t2 = ((((gtid.x << 1) + 2) << shift) - 1) >> 1;
-                const uint t3 = g_pass[t];
-                g_pass[t] = (g_pass[t] & 0xffff) | (g_pass[t2] & 0xffff0000);
-                g_pass[t2] += t3 & 0xffff0000;
-            }
-        }
-
-        GroupMemoryBarrierWithGroupSync();
-        if (gtid.x < HALF_RADIX)
-        {
-            const uint t = g_pass[gtid.x];
-            g_pass[gtid.x] = (t >> 16) + (t << 16) + (t & 0xffff0000);
-        }
+        WaveHistReductionExclusiveScanWLT16(gtid.x);
         GroupMemoryBarrierWithGroupSync();
             
-        //Update offsets
-        if (gtid.x >= WaveGetLaneCount() * serialIterations)
-        {
-            const uint t = getWaveIndex(gtid.x) / serialIterations * HALF_RADIX;
-            [unroll]
-            for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-            {
-                const uint t2 = ExtractPackedIndex(keys.k[i]);
-                offsets.o[i] += ExtractPackedValue(g_pass[t2 + t] + g_pass[t2], keys.k[i]);
-            }
-        }
-        else
-        {
-            [unroll]
-            for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-                offsets.o[i] += ExtractPackedValue(g_pass[ExtractPackedIndex(keys.k[i])], keys.k[i]);
-        }
-            
-        if (gtid.x < RADIX)
+        UpdateOffsetsWLT16(gtid.x, serialIterations, offsets, keys);
+        if (gtid.x < RADIX) //take advantage of barrier to grab value
             exclusiveHistReduction = g_pass[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
         GroupMemoryBarrierWithGroupSync();
     }
@@ -418,7 +360,6 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     Lookback(gtid.x, partitionIndex, exclusiveHistReduction);
     GroupMemoryBarrierWithGroupSync();
     
-    //Scatter keys into device
     if(partitionIndex < e_threadBlocks - 1)
     {
         if (WaveGetLaneCount() >= 16)

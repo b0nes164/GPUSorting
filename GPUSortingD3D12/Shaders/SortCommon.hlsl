@@ -288,7 +288,12 @@ inline uint WaveFlagsWGE16()
         (1U << WaveGetLaneCount()) - 1 : 0xffffffff;
 }
 
-inline void WarpLevelMultiSplit(uint key, uint waveParts, inout uint4 waveFlags)
+inline uint WaveFlagsWLT16()
+{
+    return (1U << WaveGetLaneCount()) - 1;;
+}
+
+inline void WarpLevelMultiSplitWGE16(uint key, uint waveParts, inout uint4 waveFlags)
 {
     [unroll]
     for (uint k = 0; k < RADIX_LOG; ++k)
@@ -297,6 +302,16 @@ inline void WarpLevelMultiSplit(uint key, uint waveParts, inout uint4 waveFlags)
         const uint4 ballot = WaveActiveBallot(t);
         for (uint wavePart = 0; wavePart < waveParts; ++wavePart)
             waveFlags[wavePart] &= (t ? 0 : 0xffffffff) ^ ballot[wavePart];
+    }
+}
+
+inline void WarpLevelMultiSplitWLT16(uint key, inout uint waveFlags)
+{
+    [unroll]
+    for (uint k = 0; k < RADIX_LOG; ++k)
+    {
+        const bool t = key >> (k + e_radixShift) & 1;
+        waveFlags &= (t ? 0 : 0xffffffff) ^ (uint) WaveActiveBallot(t);
     }
 }
 
@@ -316,6 +331,13 @@ inline void CountPeerBits(
         }
         totalBits += countbits(waveFlags[wavePart]);
     }
+}
+
+inline uint CountPeerBitsWLT16(
+    uint waveFlags,
+    uint ltMask)
+{
+    return countbits(waveFlags & ltMask);
 }
 
 inline uint FindLowestRankPeer(
@@ -342,7 +364,7 @@ inline OffsetStruct RankKeysWGE16(uint gtid, KeyStruct keys)
     for (uint i = 0; i < KEYS_PER_THREAD; ++i)
     {
         uint4 waveFlags = WaveFlagsWGE16();
-        WarpLevelMultiSplit(keys.k[i], waveParts, waveFlags);
+        WarpLevelMultiSplitWGE16(keys.k[i], waveParts, waveFlags);
         
         const uint index = ExtractDigit(keys.k[i]) + (getWaveIndex(gtid.x) * RADIX);
         const uint lowestRankPeer = FindLowestRankPeer(waveFlags, waveParts);
@@ -362,41 +384,35 @@ inline OffsetStruct RankKeysWGE16(uint gtid, KeyStruct keys)
 
 inline OffsetStruct RankKeysWLT16(uint gtid, KeyStruct keys, uint serialIterations)
 {
-    /*
-    const uint ltMask = (1U << WaveGetLaneIndex()) - 1;
-        [unroll]
-        for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-        {
-            //If full agnostic desired, change 
-            uint waveFlag = (1U << WaveGetLaneCount()) - 1;
-                
-            [unroll]
-            for (uint k = 0; k < RADIX_LOG; ++k)
-            {
-                const bool t = keys.k[i] >> (k + e_radixShift) & 1;
-                waveFlag &= (t ? 0 : 0xffffffff) ^ (uint) WaveActiveBallot(t);
-            }
-                
-            uint bits = countbits(waveFlag & ltMask);
-            const uint index = ExtractPackedIndex(keys.k[i]) +
-                    (getWaveIndex(gtid.x) / serialIterations * HALF_RADIX);
-                    
-            for (uint k = 0; k < serialIterations; ++k)
-            {
-                if (getWaveIndex(gtid.x) % serialIterations == k)
-                    offsets[i] = ExtractPackedValue(g_pass[index], keys.k[i]) + bits;
-                    
-                GroupMemoryBarrierWithGroupSync();
-                if (getWaveIndex(gtid.x) % serialIterations == k && bits == 0)
-                {
-                    InterlockedAdd(g_pass[index],
-                            countbits(waveFlag) << ExtractPackedShift(keys.k[i]));
-                }
-                GroupMemoryBarrierWithGroupSync();
-            }
-        }
-    */
     OffsetStruct offsets;
+    const uint ltMask = (1U << WaveGetLaneIndex()) - 1;
+    
+    [unroll]
+    for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+    {
+        uint waveFlags = WaveFlagsWLT16();
+        WarpLevelMultiSplitWLT16(keys.k[i], waveFlags);
+        
+        const uint index = ExtractPackedIndex(keys.k[i]) +
+                (getWaveIndex(gtid.x) / serialIterations * HALF_RADIX);
+        
+        const uint peerBits = CountPeerBitsWLT16(waveFlags, ltMask);
+        for (uint k = 0; k < serialIterations; ++k)
+        {
+            if (getWaveIndex(gtid.x) % serialIterations == k)
+                offsets.o[i] = ExtractPackedValue(g_pass[index], keys.k[i]) + peerBits;
+            
+            //shuffle trick will not work, because potentially two threads will
+            //atomically add to same digit counter due to bit packing
+            GroupMemoryBarrierWithGroupSync();
+            if (getWaveIndex(gtid.x) % serialIterations == k && peerBits == 0)
+            {
+                InterlockedAdd(g_pass[index],
+                    countbits(waveFlags) << ExtractPackedShift(keys.k[i]));
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
     
     return offsets;
 }
@@ -405,6 +421,17 @@ inline uint WaveHistInclusiveScanCircularShiftWGE16(uint gtid)
 {
     uint histReduction = g_pass[gtid];
     for (uint i = gtid + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
+    {
+        histReduction += g_pass[i];
+        g_pass[i] = histReduction - g_pass[i];
+    }
+    return histReduction;
+}
+
+inline uint WaveHistInclusiveScanCircularShiftWLT16(uint gtid)
+{
+    uint histReduction = g_pass[gtid];
+    for (uint i = gtid + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX)
     {
         histReduction += g_pass[i];
         g_pass[i] = histReduction - g_pass[i];
@@ -432,6 +459,48 @@ inline void WaveHistReductionExclusiveScanWGE16(uint gtid, uint histReduction)
         g_pass[gtid] += WaveReadLaneAt(g_pass[gtid - 1], 1);
 }
 
+//inclusive/exclusive prefix sum up the histograms,
+//use a blelloch scan for in place packed exclusive
+inline void WaveHistReductionExclusiveScanWLT16(uint gtid)
+{
+    uint shift = 1;
+    for (uint j = RADIX >> 2; j > 0; j >>= 1)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        if (gtid < j)
+        {
+            g_pass[((((gtid << 1) + 2) << shift) - 1) >> 1] +=
+                g_pass[((((gtid << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
+        }
+        shift++;
+    }
+    GroupMemoryBarrierWithGroupSync();
+                
+    if (gtid == 0)
+        g_pass[HALF_RADIX - 1] &= 0xffff;
+                
+    for (uint j = 1; j < RADIX >> 1; j <<= 1)
+    {
+        --shift;
+        GroupMemoryBarrierWithGroupSync();
+        if (gtid < j)
+        {
+            const uint t = ((((gtid << 1) + 1) << shift) - 1) >> 1;
+            const uint t2 = ((((gtid << 1) + 2) << shift) - 1) >> 1;
+            const uint t3 = g_pass[t];
+            g_pass[t] = (g_pass[t] & 0xffff) | (g_pass[t2] & 0xffff0000);
+            g_pass[t2] += t3 & 0xffff0000;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    if (gtid < HALF_RADIX)
+    {
+        const uint t = g_pass[gtid];
+        g_pass[gtid] = (t >> 16) + (t << 16) + (t & 0xffff0000);
+    }
+}
+
 inline void UpdateOffsetsWGE16(uint gtid, inout OffsetStruct offsets, KeyStruct keys)
 {
     if (gtid >= WaveGetLaneCount())
@@ -449,6 +518,30 @@ inline void UpdateOffsetsWGE16(uint gtid, inout OffsetStruct offsets, KeyStruct 
         [unroll]
         for (uint i = 0; i < KEYS_PER_THREAD; ++i)
             offsets.o[i] += g_pass[ExtractDigit(keys.k[i])];
+    }
+}
+
+inline void UpdateOffsetsWLT16(
+    uint gtid,
+    uint serialIterations,
+    inout OffsetStruct offsets,
+    KeyStruct keys)
+{
+    if (gtid >= WaveGetLaneCount() * serialIterations)
+    {
+        const uint t = getWaveIndex(gtid) / serialIterations * HALF_RADIX;
+        [unroll]
+        for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+        {
+            const uint t2 = ExtractPackedIndex(keys.k[i]);
+            offsets.o[i] += ExtractPackedValue(g_pass[t2 + t] + g_pass[t2], keys.k[i]);
+        }
+    }
+    else
+    {
+        [unroll]
+        for (uint i = 0; i < KEYS_PER_THREAD; ++i)
+            offsets.o[i] += ExtractPackedValue(g_pass[ExtractPackedIndex(keys.k[i])], keys.k[i]);
     }
 }
 
