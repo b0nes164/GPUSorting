@@ -678,7 +678,7 @@ inline void ScatterPairsKeyPhaseDescendingWLT16(
         [unroll]
         for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
         i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount())
+        ++i, t += WaveGetLaneCount() * serialIterations)
         {
             keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
@@ -938,7 +938,7 @@ inline void ScatterPairsKeyPhaseDescendingPartialWLT16(
     {
         for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
         i < finalKey;
-        ++i, t += WaveGetLaneCount())
+        ++i, t += WaveGetLaneCount() * serialIterations)
         {
             keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
