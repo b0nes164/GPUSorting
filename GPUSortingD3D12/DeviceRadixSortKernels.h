@@ -15,8 +15,8 @@ namespace DeviceRadixSortKernels
     enum class Reg
     {
         Sort = 0,
-        SortPayload = 1,
-        Alt = 2,
+        Alt = 1,
+        SortPayload = 2,
         AltPayload = 3,
         GlobalHist = 4,
         PassHist = 5,

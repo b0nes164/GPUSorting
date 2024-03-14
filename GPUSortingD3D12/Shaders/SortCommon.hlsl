@@ -13,33 +13,26 @@
 //#define SORT_PAIRS
 //#define ENABLE_16_BIT
 
-//General macros
 #if defined(SORT_PAIRS)
-#define PART_SIZE       7680U   //size of a partition tile
-#define PASS_DIM        512U    //The number of threads int digit binning pass
+#define PART_SIZE           7680U   //size of a partition tile
+#define D_DIM               512U    //The number of threads in a DigitBinningPass or DownSweep kernel
 #else
-#define PART_SIZE       3840U
-#define PASS_DIM        256U
+#define PART_SIZE           3840U
+#define D_DIM               256U
 #endif
 
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins
+#define HALF_RADIX          128U    //For smaller waves where bit packing is necessary
+#define HALF_MASK           127U    // '' 
 #define RADIX_LOG           8U      //log2(RADIX)
 #define RADIX_PASSES        4U      //(Key width) / RADIX_LOG
 
-#define HALF_RADIX          128U    //For smaller waves where bit packing is necessary
-#define HALF_MASK           127U    // '' 
-
-#define SEC_RADIX_START     256     //Offset for retrieving value from global histogram buffer
-#define THIRD_RADIX_START   512     //Offset for retrieving value from global histogram buffer
-#define FOURTH_RADIX_START  768     //Offset for retrieving value from global histogram buffer
-
-//For the DigitBinningPass kernel
-#define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass threadblock
+#define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass or DownSweep kernel
 #if defined(SORT_PAIRS)
-#define MAX_PASS_SMEM   8192U       //shared memory for DigitBinningPass kernel
+#define MAX_D_SMEM          8192U       //shared memory for a DigitBinningPass or DownSweep kernel
 #else
-#define MAX_PASS_SMEM   4096U       //shared memory for DigitBinningPass kernel
+#define MAX_D_SMEM          4096U       //shared memory for a DigitBinningPass or DownSweep kernel
 #endif
 
 cbuffer cbParallelSort : register(b0)
@@ -72,7 +65,7 @@ RWStructuredBuffer<float> b_sortPayload : register(u2);
 RWStructuredBuffer<float> b_altPayload  : register(u3);
 #endif
 
-groupshared uint g_pass[MAX_PASS_SMEM]; //Shared memory for DigitBinningPass
+groupshared uint g_d[MAX_D_SMEM];       //Shared memory for DigitBinningPass and DownSweep kernels
 
 struct KeyStruct
 {
@@ -122,7 +115,7 @@ inline int UintToInt(uint u)
 
 inline uint getWaveCountPass()
 {
-    return PASS_DIM / WaveGetLaneCount();
+    return D_DIM / WaveGetLaneCount();
 }
 
 inline uint ExtractDigit(uint key)
@@ -189,12 +182,12 @@ inline uint GlobalHistOffset()
 
 inline uint WaveHistsSizeWGE16()
 {
-    return PASS_DIM / WaveGetLaneCount() * RADIX;
+    return D_DIM / WaveGetLaneCount() * RADIX;
 }
 
 inline uint WaveHistsSizeWLT16()
 {
-    return MAX_PASS_SMEM;
+    return MAX_D_SMEM;
 }
 
 //*****************************************************************************
@@ -205,7 +198,15 @@ inline uint WaveHistsSizeWLT16()
 //some operations are peformed serially.
 inline uint SerialIterations()
 {
-    return (PASS_DIM / WaveGetLaneCount() + 31) / 32;
+    return (D_DIM / WaveGetLaneCount() + 31) / 32;
+}
+
+inline void ClearWaveHists(uint gtid)
+{
+    const uint histsEnd = WaveGetLaneCount() >= 16 ?
+        WaveHistsSizeWGE16() : WaveHistsSizeWLT16();
+    for (uint i = gtid; i < histsEnd; i += D_DIM)
+        g_d[i] = 0;
 }
 
 inline void LoadKey(inout uint key, uint index)
@@ -375,7 +376,7 @@ inline OffsetStruct RankKeysWGE16(uint gtid, KeyStruct keys)
         
         uint preIncrementVal;
         if (peerBits == 0)
-            InterlockedAdd(g_pass[index], totalBits, preIncrementVal);
+            InterlockedAdd(g_d[index], totalBits, preIncrementVal);
         offsets.o[i] = WaveReadLaneAt(preIncrementVal, lowestRankPeer) + peerBits;
     }
     
@@ -400,14 +401,14 @@ inline OffsetStruct RankKeysWLT16(uint gtid, KeyStruct keys, uint serialIteratio
         for (uint k = 0; k < serialIterations; ++k)
         {
             if (getWaveIndex(gtid.x) % serialIterations == k)
-                offsets.o[i] = ExtractPackedValue(g_pass[index], keys.k[i]) + peerBits;
+                offsets.o[i] = ExtractPackedValue(g_d[index], keys.k[i]) + peerBits;
             
             //shuffle trick will not work, because potentially two threads will
             //atomically add to same digit counter due to bit packing
             GroupMemoryBarrierWithGroupSync();
             if (getWaveIndex(gtid.x) % serialIterations == k && peerBits == 0)
             {
-                InterlockedAdd(g_pass[index],
+                InterlockedAdd(g_d[index],
                     countbits(waveFlags) << ExtractPackedShift(keys.k[i]));
             }
             GroupMemoryBarrierWithGroupSync();
@@ -419,22 +420,22 @@ inline OffsetStruct RankKeysWLT16(uint gtid, KeyStruct keys, uint serialIteratio
 
 inline uint WaveHistInclusiveScanCircularShiftWGE16(uint gtid)
 {
-    uint histReduction = g_pass[gtid];
+    uint histReduction = g_d[gtid];
     for (uint i = gtid + RADIX; i < WaveHistsSizeWGE16(); i += RADIX)
     {
-        histReduction += g_pass[i];
-        g_pass[i] = histReduction - g_pass[i];
+        histReduction += g_d[i];
+        g_d[i] = histReduction - g_d[i];
     }
     return histReduction;
 }
 
 inline uint WaveHistInclusiveScanCircularShiftWLT16(uint gtid)
 {
-    uint histReduction = g_pass[gtid];
+    uint histReduction = g_d[gtid];
     for (uint i = gtid + HALF_RADIX; i < WaveHistsSizeWLT16(); i += HALF_RADIX)
     {
-        histReduction += g_pass[i];
-        g_pass[i] = histReduction - g_pass[i];
+        histReduction += g_d[i];
+        g_d[i] = histReduction - g_d[i];
     }
     return histReduction;
 }
@@ -444,19 +445,19 @@ inline void WaveHistReductionExclusiveScanWGE16(uint gtid, uint histReduction)
     if (gtid < RADIX)
     {
         const uint laneMask = WaveGetLaneCount() - 1;
-        g_pass[((WaveGetLaneIndex() + 1) & laneMask) + (gtid & ~laneMask)] = histReduction;
+        g_d[((WaveGetLaneIndex() + 1) & laneMask) + (gtid & ~laneMask)] = histReduction;
     }
     GroupMemoryBarrierWithGroupSync();
                 
     if (gtid < RADIX / WaveGetLaneCount())
     {
-        g_pass[gtid * WaveGetLaneCount()] =
-            WavePrefixSum(g_pass[gtid * WaveGetLaneCount()]);
+        g_d[gtid * WaveGetLaneCount()] =
+            WavePrefixSum(g_d[gtid * WaveGetLaneCount()]);
     }
     GroupMemoryBarrierWithGroupSync();
                 
     if (gtid < RADIX && WaveGetLaneIndex())
-        g_pass[gtid] += WaveReadLaneAt(g_pass[gtid - 1], 1);
+        g_d[gtid] += WaveReadLaneAt(g_d[gtid - 1], 1);
 }
 
 //inclusive/exclusive prefix sum up the histograms,
@@ -469,15 +470,15 @@ inline void WaveHistReductionExclusiveScanWLT16(uint gtid)
         GroupMemoryBarrierWithGroupSync();
         if (gtid < j)
         {
-            g_pass[((((gtid << 1) + 2) << shift) - 1) >> 1] +=
-                g_pass[((((gtid << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
+            g_d[((((gtid << 1) + 2) << shift) - 1) >> 1] +=
+                g_d[((((gtid << 1) + 1) << shift) - 1) >> 1] & 0xffff0000;
         }
         shift++;
     }
     GroupMemoryBarrierWithGroupSync();
                 
     if (gtid == 0)
-        g_pass[HALF_RADIX - 1] &= 0xffff;
+        g_d[HALF_RADIX - 1] &= 0xffff;
                 
     for (uint j = 1; j < RADIX >> 1; j <<= 1)
     {
@@ -487,17 +488,17 @@ inline void WaveHistReductionExclusiveScanWLT16(uint gtid)
         {
             const uint t = ((((gtid << 1) + 1) << shift) - 1) >> 1;
             const uint t2 = ((((gtid << 1) + 2) << shift) - 1) >> 1;
-            const uint t3 = g_pass[t];
-            g_pass[t] = (g_pass[t] & 0xffff) | (g_pass[t2] & 0xffff0000);
-            g_pass[t2] += t3 & 0xffff0000;
+            const uint t3 = g_d[t];
+            g_d[t] = (g_d[t] & 0xffff) | (g_d[t2] & 0xffff0000);
+            g_d[t2] += t3 & 0xffff0000;
         }
     }
 
     GroupMemoryBarrierWithGroupSync();
     if (gtid < HALF_RADIX)
     {
-        const uint t = g_pass[gtid];
-        g_pass[gtid] = (t >> 16) + (t << 16) + (t & 0xffff0000);
+        const uint t = g_d[gtid];
+        g_d[gtid] = (t >> 16) + (t << 16) + (t & 0xffff0000);
     }
 }
 
@@ -510,14 +511,14 @@ inline void UpdateOffsetsWGE16(uint gtid, inout OffsetStruct offsets, KeyStruct 
         for (uint i = 0; i < KEYS_PER_THREAD; ++i)
         {
             const uint t2 = ExtractDigit(keys.k[i]);
-            offsets.o[i] += g_pass[t2 + t] + g_pass[t2];
+            offsets.o[i] += g_d[t2 + t] + g_d[t2];
         }
     }
     else
     {
         [unroll]
         for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-            offsets.o[i] += g_pass[ExtractDigit(keys.k[i])];
+            offsets.o[i] += g_d[ExtractDigit(keys.k[i])];
     }
 }
 
@@ -534,14 +535,14 @@ inline void UpdateOffsetsWLT16(
         for (uint i = 0; i < KEYS_PER_THREAD; ++i)
         {
             const uint t2 = ExtractPackedIndex(keys.k[i]);
-            offsets.o[i] += ExtractPackedValue(g_pass[t2 + t] + g_pass[t2], keys.k[i]);
+            offsets.o[i] += ExtractPackedValue(g_d[t2 + t] + g_d[t2], keys.k[i]);
         }
     }
     else
     {
         [unroll]
         for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-            offsets.o[i] += ExtractPackedValue(g_pass[ExtractPackedIndex(keys.k[i])], keys.k[i]);
+            offsets.o[i] += ExtractPackedValue(g_d[ExtractPackedIndex(keys.k[i])], keys.k[i]);
     }
 }
 
@@ -549,7 +550,7 @@ inline void ScatterKeysShared(OffsetStruct offsets, KeyStruct keys)
 {
     [unroll]
     for (uint i = 0; i < KEYS_PER_THREAD; ++i)
-        g_pass[offsets.o[i]] = keys.k[i];
+        g_d[offsets.o[i]] = keys.k[i];
 }
 
 inline uint DescendingIndex(uint deviceIndex)
@@ -560,31 +561,31 @@ inline uint DescendingIndex(uint deviceIndex)
 inline void WriteKey(uint deviceIndex, uint groupSharedIndex)
 {
 #if defined(KEY_UINT)
-    b_alt[deviceIndex] = g_pass[groupSharedIndex];
+    b_alt[deviceIndex] = g_d[groupSharedIndex];
 #elif defined(KEY_INT)
-    b_alt[deviceIndex] = UintToInt(g_pass[groupSharedIndex]);
+    b_alt[deviceIndex] = UintToInt(g_d[groupSharedIndex]);
 #elif defined(KEY_FLOAT)
-    b_alt[deviceIndex] = UintToFloat(g_pass[groupSharedIndex]);
+    b_alt[deviceIndex] = UintToFloat(g_d[groupSharedIndex]);
 #endif
 }
 
 inline void LoadPayload(uint deviceIndex, uint groupSharedIndex)
 {
 #if defined(PAYLOAD_UINT)
-    g_pass[groupSharedIndex] = b_sortPayload[deviceIndex];
+    g_d[groupSharedIndex] = b_sortPayload[deviceIndex];
 #elif defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-    g_pass[groupSharedIndex] = asuint(b_sortPayload[deviceIndex]);
+    g_d[groupSharedIndex] = asuint(b_sortPayload[deviceIndex]);
 #endif
 }
 
 inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
 {
 #if defined(PAYLOAD_UINT)
-    b_altPayload[deviceIndex] = g_pass[groupSharedIndex];
+    b_altPayload[deviceIndex] = g_d[groupSharedIndex];
 #elif defined(PAYLOAD_INT)
-    b_altPayload[deviceIndex] = asint(g_pass[groupSharedIndex]);
+    b_altPayload[deviceIndex] = asint(g_d[groupSharedIndex]);
 #elif defined(PAYLOAD_FLOAT)
-    b_altPayload[deviceIndex] = asfloat(g_pass[groupSharedIndex]);
+    b_altPayload[deviceIndex] = asfloat(g_d[groupSharedIndex]);
 #endif
 }
 
@@ -594,16 +595,16 @@ inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
 //KEYS ONLY
 inline void ScatterKeysOnlyDeviceAscending(uint gtid)
 {
-    for (uint i = gtid; i < PART_SIZE; i += PASS_DIM)
-        WriteKey(g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i, i);
+    for (uint i = gtid; i < PART_SIZE; i += D_DIM)
+        WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
 }
 
 inline void ScatterKeysOnlyDeviceDescending(uint gtid)
 {
     if(e_radixShift == 24)
     {
-        for (uint i = gtid; i < PART_SIZE; i += PASS_DIM)
-            WriteKey(DescendingIndex(g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i), i);
+        for (uint i = gtid; i < PART_SIZE; i += D_DIM)
+            WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
     }
     else
     {
@@ -628,7 +629,7 @@ inline void ScatterPairsKeyPhaseAscendingWGE16(uint gtid, inout KeyStruct keys)
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
     {
-        keys.k[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
         WriteKey(keys.k[i], t);
     }
 }
@@ -643,7 +644,7 @@ inline void ScatterPairsKeyPhaseAscendingWLT16(
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        keys.k[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
         WriteKey(keys.k[i], t);
     }
 }
@@ -657,7 +658,7 @@ inline void ScatterPairsKeyPhaseDescendingWGE16(uint gtid, inout KeyStruct keys)
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
         {
-            keys.k[i] = DescendingIndex(g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t);
+            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
         }
     }
@@ -679,7 +680,7 @@ inline void ScatterPairsKeyPhaseDescendingWLT16(
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
         {
-            keys.k[i] = DescendingIndex(g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t);
+            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
         }
     }
@@ -849,16 +850,16 @@ inline uint FinalKey(
 //KEYS ONLY
 inline void ScatterKeysOnlyDevicePartialAscending(uint gtid, uint finalPartSize)
 {
-    for (uint i = gtid; i < finalPartSize; i += PASS_DIM)
-        WriteKey(g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i, i);
+    for (uint i = gtid; i < finalPartSize; i += D_DIM)
+        WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
 }
 
 inline void ScatterKeysOnlyDevicePartialDescending(uint gtid, uint finalPartSize)
 {
     if (e_radixShift == 24)
     {
-        for (uint i = gtid; i < finalPartSize; i += PASS_DIM)
-            WriteKey(DescendingIndex(g_pass[ExtractDigit(g_pass[i]) + PART_SIZE] + i), i);
+        for (uint i = gtid; i < finalPartSize; i += D_DIM)
+            WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
     }
     else
     {
@@ -885,7 +886,7 @@ inline void ScatterPairsKeyPhaseAscendingPartialWGE16(
         i < finalKey;
         ++i, t += WaveGetLaneCount())
     {
-        keys.k[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
         WriteKey(keys.k[i], t);
     }
 }
@@ -901,7 +902,7 @@ inline void ScatterPairsKeyPhaseAscendingPartialWLT16(
         i < finalKey;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        keys.k[i] = g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t;
+        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
         WriteKey(keys.k[i], t);
     }
 }
@@ -917,7 +918,7 @@ inline void ScatterPairsKeyPhaseDescendingPartialWGE16(
         i < finalKey;
         ++i, t += WaveGetLaneCount())
         {
-            keys.k[i] = DescendingIndex(g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t);
+            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
         }
     }
@@ -939,7 +940,7 @@ inline void ScatterPairsKeyPhaseDescendingPartialWLT16(
         i < finalKey;
         ++i, t += WaveGetLaneCount())
         {
-            keys.k[i] = DescendingIndex(g_pass[ExtractDigit(g_pass[t]) + PART_SIZE] + t);
+            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
             WriteKey(keys.k[i], t);
         }
     }

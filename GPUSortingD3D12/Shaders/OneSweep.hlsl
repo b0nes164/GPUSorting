@@ -12,11 +12,20 @@
  *          https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus
  *
  ******************************************************************************/
+//Compiler Defines
+//#define KEY_UINT KEY_INT KEY_FLOAT
+//#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
+//#define SHOULD_ASCEND
+//#define SORT_PAIRS
+//#define ENABLE_16_BIT
 #include "SortCommon.hlsl"
 
 #define G_HIST_DIM          128U    //The number of threads in a global hist threadblock
 
-//for the chained scan with decoupled lookback
+#define SEC_RADIX_START     256     //Offset for retrieving value from global histogram buffer
+#define THIRD_RADIX_START   512     //Offset for retrieving value from global histogram buffer
+#define FOURTH_RADIX_START  768     //Offset for retrieving value from global histogram buffer
+
 #define FLAG_NOT_READY      0       //Flag value inidicating neither inclusive sum, nor reduction of a partition tile is ready
 #define FLAG_REDUCTION      1       //Flag value indicating reduction of a partition tile is ready
 #define FLAG_INCLUSIVE      2       //Flag value indicating inclusive sum of a partition tile is ready
@@ -28,7 +37,6 @@ globallycoherent RWStructuredBuffer<uint> b_index       : register(u6); //buffer
 
 groupshared uint4 g_gHist[RADIX * 2];   //Shared memory for GlobalHistogram
 groupshared uint g_scan[RADIX];         //Shared memory for Scan  
-
 
 inline uint CurrentPass()
 {
@@ -205,20 +213,12 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 //*****************************************************************************
 //DIGIT BINNING PASS KERNEL
 //*****************************************************************************
-inline void ClearWaveHists(uint gtid)
-{
-    const uint histsEnd = WaveGetLaneCount() >= 16 ?
-        WaveHistsSizeWGE16() : WaveHistsSizeWLT16();
-    for (uint i = gtid; i < histsEnd; i += PASS_DIM)
-        g_pass[i] = 0;
-}
-
 inline void AssignPartitionTile(uint gtid, inout uint partitionIndex)
 {
     if (!gtid)
-        InterlockedAdd(b_index[CurrentPass()], 1, g_pass[PART_SIZE - 1]);
+        InterlockedAdd(b_index[CurrentPass()], 1, g_d[PART_SIZE - 1]);
     GroupMemoryBarrierWithGroupSync();
-    partitionIndex = g_pass[PART_SIZE - 1];
+    partitionIndex = g_d[PART_SIZE - 1];
 }
 
 inline void DeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histReduction)
@@ -258,7 +258,7 @@ inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
                     InterlockedAdd(b_passHist[gtid + PassHistOffset(partIndex + 1)],
                         1 | lookbackReduction << 2);
                 }
-                g_pass[gtid + PART_SIZE] = lookbackReduction - exclusiveHistReduction;
+                g_d[gtid + PART_SIZE] = lookbackReduction - exclusiveHistReduction;
                 break;
             }
                     
@@ -271,7 +271,7 @@ inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
     }
 }
 
-[numthreads(PASS_DIM, 1, 1)]
+[numthreads(D_DIM, 1, 1)]
 void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
 {
     const uint serialIterations = SerialIterations();
@@ -332,7 +332,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             
         UpdateOffsetsWGE16(gtid.x, offsets, keys);
         if (gtid.x < RADIX)
-            exclusiveHistReduction = g_pass[gtid.x]; //take advantage of barrier to grab value
+            exclusiveHistReduction = g_d[gtid.x]; //take advantage of barrier to grab value
         GroupMemoryBarrierWithGroupSync();
     }
     
@@ -343,7 +343,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         if (gtid.x < HALF_RADIX)
         {
             uint histReduction = WaveHistInclusiveScanCircularShiftWLT16(gtid.x);
-            g_pass[gtid.x] = histReduction + (histReduction << 16); //take advantage of barrier to begin scan
+            g_d[gtid.x] = histReduction + (histReduction << 16); //take advantage of barrier to begin scan
             DeviceBroadcastReductionsWLT16(gtid.x, partitionIndex, histReduction);
         }
             
@@ -352,7 +352,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
             
         UpdateOffsetsWLT16(gtid.x, serialIterations, offsets, keys);
         if (gtid.x < RADIX) //take advantage of barrier to grab value
-            exclusiveHistReduction = g_pass[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
+            exclusiveHistReduction = g_d[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
         GroupMemoryBarrierWithGroupSync();
     }
     
