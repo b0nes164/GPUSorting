@@ -10,7 +10,7 @@
 #include "DeviceRadixSort.h"
 #include "OneSweep.h"
 
-extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 611; }
+extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 613; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
 
 DeviceInfo GetDeviceInfo(ID3D12Device* device)
