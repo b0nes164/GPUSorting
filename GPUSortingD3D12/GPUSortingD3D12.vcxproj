@@ -185,6 +185,7 @@
     <ClInclude Include="OneSweepKernels.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="GPUSorting.h" />
+    <ClInclude Include="Tests.h" />
     <ClInclude Include="UtilityKernels.h" />
     <ClInclude Include="Utils.h" />
   </ItemGroup>

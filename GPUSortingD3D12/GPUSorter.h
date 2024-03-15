@@ -64,6 +64,10 @@ protected:
     {
     };
 
+    ~GPUSorter()
+    {
+    };
+
 public:
     void TestSort(
         uint32_t testSize,
@@ -136,7 +140,7 @@ public:
         printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", inputSize, inputSize / totalTime * batchSize);
     }
 
-    virtual void TestAll() = 0;
+    virtual bool TestAll() = 0;
 
 protected:
     void Initialize()
@@ -164,16 +168,7 @@ protected:
 
     virtual void InitComputeShaders() = 0;
 
-    void UpdateSize(uint32_t size)
-    {
-        if (m_numKeys != size)
-        {
-            m_numKeys = size;
-            m_partitions = (m_numKeys + k_partitionSize - 1) / k_partitionSize;
-            DisposeBuffers();
-            InitBuffers(m_numKeys, m_partitions);
-        }
-    }
+    virtual void UpdateSize(uint32_t size) = 0;
 
     virtual void DisposeBuffers() = 0;
 
@@ -292,5 +287,10 @@ protected:
         std::vector<uint64_t> vecOut = ReadBackTiming(m_readBackBuffer);
         uint64_t diff = vecOut[1] - vecOut[0];
         return diff / (double)m_timestampFrequency;
+    }
+
+    static inline uint32_t divRoundUp(uint32_t x, uint32_t y)
+    {
+        return (x + y - 1) / y;
     }
 };

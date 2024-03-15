@@ -20,6 +20,7 @@
 //#define ENABLE_16_BIT
 #include "SortCommon.hlsl"
 
+#define G_HIST_PART_SIZE    32768U  //The size of a GlobalHistogram partition tile.
 #define G_HIST_DIM          128U    //The number of threads in a global hist threadblock
 
 #define SEC_RADIX_START     256     //Offset for retrieving value from global histogram buffer
@@ -71,10 +72,10 @@ inline void HistogramDigitCounts(uint gtid, uint gid)
 {
     const uint histOffset = gtid / 64 * RADIX;
     const uint partitionEnd = gid == e_threadBlocks - 1 ?
-        e_numKeys : (gid + 1) * PART_SIZE;
+        e_numKeys : (gid + 1) * G_HIST_PART_SIZE;
     
     uint t;
-    for (uint i = gtid + gid * PART_SIZE; i < partitionEnd; i += G_HIST_DIM)
+    for (uint i = gtid + gid * G_HIST_PART_SIZE; i < partitionEnd; i += G_HIST_DIM)
     {
 #if defined(KEY_UINT)
         t = b_sort[i];

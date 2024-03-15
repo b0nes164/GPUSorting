@@ -103,7 +103,7 @@ OneSweep::~OneSweep()
 {
 }
 
-void OneSweep::TestAll()
+bool OneSweep::TestAll()
 {
     printf("Beginning ");
     printf(k_sortName);
@@ -132,9 +132,17 @@ void OneSweep::TestAll()
 
     uint32_t totalTests = k_partitionSize + 1 + 3;
     if (sortPayloadTestsPassed == totalTests)
+    {
         printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
+        return true;
+    }
     else
+    {
         printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
+        return false;
+    }
+        
+    return sortPayloadTestsPassed == totalTests;
 }
 
 void OneSweep::InitComputeShaders()
@@ -147,6 +155,18 @@ void OneSweep::InitComputeShaders()
     m_initEntropy = new InitEntropyControlled(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
+}
+
+void OneSweep::UpdateSize(uint32_t size)
+{
+    if (m_numKeys != size)
+    {
+        m_numKeys = size;
+        m_partitions = divRoundUp(m_numKeys, k_partitionSize);
+        m_globalHistPartitions = divRoundUp(m_numKeys, k_globalHistPartitionSize);
+        DisposeBuffers();
+        InitBuffers(m_numKeys, m_partitions);
+    }
 }
 
 void OneSweep::DisposeBuffers()
@@ -263,7 +283,7 @@ void OneSweep::PrepareSortCmdList()
         m_sortBuffer->GetGPUVirtualAddress(),
         m_globalHistBuffer->GetGPUVirtualAddress(),
         m_numKeys,
-        m_partitions);
+        m_globalHistPartitions);
     UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
 
     m_scan->Dispatch(

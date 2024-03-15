@@ -14,6 +14,8 @@
 
 class OneSweep : public GPUSorter
 {
+    const uint32_t k_globalHistPartitionSize = 32768;
+
     winrt::com_ptr<ID3D12Resource> m_indexBuffer;
     winrt::com_ptr<ID3D12Resource> m_passHistBuffer;
     winrt::com_ptr<ID3D12Resource> m_globalHistBuffer;
@@ -22,6 +24,8 @@ class OneSweep : public GPUSorter
     OneSweepKernels::GlobalHist* m_globalHist;
     OneSweepKernels::Scan* m_scan;
     OneSweepKernels::DigitBinningPass* m_digitBinningPass;
+
+    uint32_t m_globalHistPartitions;
 
 public:
     OneSweep(
@@ -39,10 +43,12 @@ public:
 
     ~OneSweep();
 
-    void TestAll() override;
+    bool TestAll() override;
 
 protected:
     void InitComputeShaders() override;
+
+    void UpdateSize(uint32_t size) override;
 
     void DisposeBuffers() override;
 

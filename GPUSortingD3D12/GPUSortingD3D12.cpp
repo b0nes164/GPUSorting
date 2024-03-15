@@ -9,6 +9,7 @@
 #include "pch.h"
 #include "DeviceRadixSort.h"
 #include "OneSweep.h"
+#include "Tests.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 613; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
@@ -106,7 +107,7 @@ winrt::com_ptr<ID3D12Device> InitDeviceWarp()
 int main()
 {
     winrt::com_ptr<ID3D12Device> device = InitDevice();
-    //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP
+    //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP, you will need NuGet package
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
     DeviceRadixSort* dvr = new DeviceRadixSort(
@@ -128,5 +129,7 @@ int main()
     oneSweep->TestAll();
     oneSweep->BatchTiming(1 << 28, 25, 10, ENTROPY_PRESET_1);
 
+    //SuperTestOneSweep(device, deviceInfo);            <- Test the complete functionality space,
+    //SuperTestDeviceRadixSort(device, deviceInfo);     <- these will take awhile!
     return 0;
 }

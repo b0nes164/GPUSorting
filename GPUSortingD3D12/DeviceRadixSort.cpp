@@ -95,7 +95,7 @@ DeviceRadixSort::~DeviceRadixSort()
 {
 }
 
-void DeviceRadixSort::TestAll()
+bool DeviceRadixSort::TestAll()
 {
     printf("Beginning ");
     printf(k_sortName);
@@ -137,9 +137,15 @@ void DeviceRadixSort::TestAll()
 
     uint32_t totalTests = k_partitionSize + 1 + 255 + 3;
     if (sortPayloadTestsPassed + scanTestsPassed == totalTests)
+    {
         printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
+        return true;
+    }
     else
+    {
         printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed + scanTestsPassed, totalTests);
+        return false;
+    }
 }
 
 void DeviceRadixSort::InitComputeShaders()
@@ -153,6 +159,17 @@ void DeviceRadixSort::InitComputeShaders()
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
     m_initScanTestValues = new InitScanTestValues(m_device, m_devInfo, m_compileArguments);
+}
+
+void DeviceRadixSort::UpdateSize(uint32_t size)
+{
+    if (m_numKeys != size)
+    {
+        m_numKeys = size;
+        m_partitions = divRoundUp(m_numKeys, k_partitionSize);
+        DisposeBuffers();
+        InitBuffers(m_numKeys, m_partitions);
+    }
 }
 
 void DeviceRadixSort::DisposeBuffers()

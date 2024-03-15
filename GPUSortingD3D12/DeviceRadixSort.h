@@ -39,10 +39,12 @@ public:
 
     ~DeviceRadixSort();
 
-    void TestAll() override;
+    bool TestAll() override;
 
 protected:
     void InitComputeShaders() override;
+
+    void UpdateSize(uint32_t size) override;
 
     void DisposeBuffers() override;
 
