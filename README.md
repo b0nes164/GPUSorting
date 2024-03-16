@@ -6,15 +6,19 @@ GPUSorting aims to bring state-of-the-art GPU sorting techniques from CUDA and m
 
 GPUSorting includes two sorting algorithms, both based on those found in the CUB library: DeviceRadixSort and OneSweep. The two algorithms are almost identical, except for the way that the inter-threadblock prefix sum of digit counts is performed. In DeviceRadixSort, the prefix sum is done through an older technique, "reduce-then-scan," whereas in OneSweep, it is accomplished using "[chained-scan-with-decoupled-lookback](https://research.nvidia.com/publication/2016-03_single-pass-parallel-prefix-scan-decoupled-look-back)." Because "chained-scan" relies on forward thread-progress guarantees, OneSweep is less portable than DeviceRadixSort, and DeviceRadixSort should be used whenever portability is a concern. Again, due to a lack of hardware, I cannot say exactly how portable OneSweep is, but as a general rule of thumb, OneSweep appears to run correctly on anything that is not mobile or WARP. Use OneSweep at your own risk; you have been warned!
 
-### Performance
+# Performance
 
 As a measure of the quality of the code, GPUSorting has also been implemented in CUDA and benchmarked against Nvidia's [CUB](https://github.com/NVIDIA/cccl) library, with the following results:
 
-![GPUSorting vs CUB](https://github.com/b0nes164/GPUSorting/assets/68340554/ab29deec-25bb-438c-81f6-3c121b1e1638)
+![GPUSorting vs CUB](https://github.com/b0nes164/GPUSorting/assets/68340554/4804484e-7360-4607-b07f-a8760244d556) 
 
+## Thearling and Smith Benchmark:
+![OneSweep Thearling and Smith Benchmark](https://github.com/b0nes164/GPUSorting/assets/68340554/60b03468-636b-42df-99d9-e27d63eeb300)
+
+## Tuning for Different Devices:
 Currently, GPUSorting does not incorporate any sort of device-based tuning; instead, it uses a "middle-of-the-road" tuning preset that appears to work well on most devices:
 
-![GPUSorting D3D12 Speeds](https://github.com/b0nes164/GPUSorting/assets/68340554/df6fe396-339f-4061-8d55-94f4cf61dd48)
+![GPUSorting D3D12 Speeds](https://github.com/b0nes164/GPUSorting/assets/68340554/08728224-1b90-4052-b546-57601f1b9b20)
 
 # Getting Started
 
