@@ -59,6 +59,27 @@ __global__ void InitRandom(uint32_t* sort, uint32_t size, uint32_t seed)
     }
 }
 
+__global__ void InitRandom(uint32_t* sort, uint32_t* sortPayload, uint32_t size, uint32_t seed)
+{
+    int idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    for (uint32_t i = threadIdx.x + blockDim.x * blockIdx.x; i < size; i += blockDim.x * gridDim.x)
+    {
+        z1 = TAUS_STEP_1;
+        z2 = TAUS_STEP_2;
+        z3 = TAUS_STEP_3;
+        z4 = LCG_STEP;
+        const uint32_t t = HYBRID_TAUS;
+        sort[i] = t;
+        sortPayload[i] = t;
+    }
+}
+
 //An Improved Supercomputer Sorting Benchmark
 //Kurt Thearling & Stephen Smith
 //Bitwise AND successive keys together to decrease entropy
@@ -73,7 +94,7 @@ __global__ void InitRandom(uint32_t* sort, uint32_t size, uint32_t seed)
 __global__ void InitEntropyControlled(uint32_t* sort, uint32_t andCount, uint32_t size)
 {
     const uint32_t increment =  blockDim.x * gridDim.x * andCount;
-    const uint32_t alignedEnd = size / andCount;
+    const uint32_t alignedEnd = size / andCount * andCount;
     for (uint32_t i = (threadIdx.x + blockDim.x * blockIdx.x) * andCount;
         i < alignedEnd;
         i += increment)
@@ -121,6 +142,55 @@ __global__ void Validate(uint32_t* sort, uint32_t* errCount, uint32_t size)
     }
 }
 
+//Assuming values are identical to keys, payloads must also be in sorted order
+__global__ void Validate(uint32_t* sort, uint32_t* sortPayload, uint32_t* errCount, uint32_t size)
+{
+    __shared__ uint32_t s_val[VAL_PART_SIZE + 1];
+
+    if (blockIdx.x < gridDim.x - 1)
+    {
+        const uint32_t deviceOffset = blockIdx.x * VAL_PART_SIZE;
+
+        //Keys
+        for (uint32_t i = threadIdx.x; i < VAL_PART_SIZE + 1; i += blockDim.x)
+            s_val[i] = sort[i + deviceOffset];
+        __syncthreads();
+
+        for (uint32_t i = threadIdx.x; i < VAL_PART_SIZE; i += blockDim.x)
+        {
+            if (s_val[i] > s_val[i + 1])
+                atomicAdd(&errCount[0], 1);
+        }
+
+        //Values
+        for (uint32_t i = threadIdx.x; i < VAL_PART_SIZE + 1; i += blockDim.x)
+            s_val[i] = sortPayload[i + deviceOffset];
+        __syncthreads();
+
+        for (uint32_t i = threadIdx.x; i < VAL_PART_SIZE; i += blockDim.x)
+        {
+            if (s_val[i] > s_val[i + 1])
+                atomicAdd(&errCount[0], 1);
+        }
+    }
+
+    if (blockIdx.x == gridDim.x - 1)
+    {
+        //keys
+        for (uint32_t i = threadIdx.x + blockIdx.x * VAL_PART_SIZE; i < size - 1; i += blockDim.x)
+        {
+            if (sort[i] > sort[i + 1])
+                atomicAdd(&errCount[0], 1);
+        }
+
+        //values
+        for (uint32_t i = threadIdx.x + blockIdx.x * VAL_PART_SIZE; i < size - 1; i += blockDim.x)
+        {
+            if (sortPayload[i] > sortPayload[i + 1])
+                atomicAdd(&errCount[0], 1);
+        }
+    }
+}
 __global__ void Print(uint32_t* toPrint, uint32_t size)
 {
     for (uint32_t i = 0; i < size; ++i)

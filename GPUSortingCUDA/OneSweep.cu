@@ -161,7 +161,7 @@ __global__ void OneSweep::Scan(
     }
 }
 
-__global__ void OneSweep::DigitBinningPass(
+__global__ void OneSweep::DigitBinningPassKeysOnly(
     uint32_t* sort,
     uint32_t* alt,
     volatile uint32_t* passHistogram,
@@ -340,5 +340,280 @@ __global__ void OneSweep::DigitBinningPass(
         const uint32_t finalPartSize = size - BIN_PART_START;
         for (uint32_t i = threadIdx.x; i < finalPartSize; i += blockDim.x)
             alt[s_localHistogram[s_warpHistograms[i] >> radixShift & RADIX_MASK] + i] = s_warpHistograms[i];
+    }
+}
+
+__global__ void OneSweep::DigitBinningPassPairs(
+    uint32_t* sort,
+    uint32_t* sortPayload,
+    uint32_t* alt,
+    uint32_t* altPayload,
+    volatile uint32_t* passHistogram,
+    volatile uint32_t* index,
+    uint32_t size,
+    uint32_t radixShift)
+{
+    __shared__ uint32_t s_warpHistograms[BIN_PART_SIZE];
+    __shared__ uint32_t s_localHistogram[RADIX];
+    volatile uint32_t* s_warpHist = &s_warpHistograms[WARP_INDEX << RADIX_LOG];
+
+    //clear shared memory
+    for (uint32_t i = threadIdx.x; i < BIN_HISTS_SIZE; i += blockDim.x)  //unnecessary work for last partion but still a win to avoid another barrier
+        s_warpHistograms[i] = 0;
+
+    //atomically assign partition tiles
+    if (threadIdx.x == 0)
+        s_warpHistograms[BIN_PART_SIZE - 1] = atomicAdd((uint32_t*)&index[radixShift >> 3], 1);
+    __syncthreads();
+    const uint32_t partitionIndex = s_warpHistograms[BIN_PART_SIZE - 1];
+
+    //load keys
+    uint32_t keys[BIN_KEYS_PER_THREAD];
+    if (partitionIndex < gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            keys[i] = sort[t];
+        }
+    }
+
+    //To handle input sizes not perfect multiples of the partition tile size,
+    //load "dummy" keys, which are keys with the highest possible digit.
+    //Because of the stability of the sort, these keys are guaranteed to be 
+    //last when scattered. This allows for effortless divergence free sorting
+    //of the final partition.
+    if (partitionIndex == gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            keys[i] = t < size ? sort[t] : 0xffffffff;
+        }
+    }
+
+    //WLMS
+    uint16_t offsets[BIN_KEYS_PER_THREAD];
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+    {
+        //CUB version "match any"
+        /*
+        unsigned warpFlags;
+        #pragma unroll
+        for (int k = 0; k < RADIX_LOG; ++k)
+        {
+            uint32_t mask;
+            uint32_t current_bit = 1 << k + radixShift;
+            asm("{\n"
+                "    .reg .pred p;\n"
+                "    and.b32 %0, %1, %2;"
+                "    setp.ne.u32 p, %0, 0;\n"
+                "    vote.ballot.sync.b32 %0, p, 0xffffffff;\n"
+                "    @!p not.b32 %0, %0;\n"
+                "}\n" : "=r"(mask) : "r"(keys[i]), "r"(current_bit));
+            warpFlags = (k == 0) ? mask : warpFlags & mask;
+        }
+        const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
+        */
+        unsigned warpFlags = 0xffffffff;
+        #pragma unroll
+        for (int k = 0; k < RADIX_LOG; ++k)
+        {
+            const bool t2 = keys[i] >> k + radixShift & 1;
+            warpFlags &= (t2 ? 0 : 0xffffffff) ^ __ballot_sync(0xffffffff, t2);
+        }
+        const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
+
+        //A roughly analogous version to what is used in WLT16 D3D12 implementation.
+        /*
+        offsets[i] = s_warpHist[keys[i] >> radixShift & RADIX_MASK] + bits;
+        __syncwarp(0xffffffff);
+        if (bits == 0)
+            s_warpHist[keys[i] >> radixShift & RADIX_MASK] += __popc(warpFlags);
+        __syncwarp(0xffffffff);
+        */
+        uint32_t preIncrementVal;
+        if (bits == 0)
+            preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & RADIX_MASK], __popc(warpFlags));
+
+        offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(warpFlags) - 1) + bits;
+    }
+    __syncthreads();
+
+    //exclusive prefix sum up the warp histograms
+    if (threadIdx.x < RADIX)
+    {
+        uint32_t reduction = s_warpHistograms[threadIdx.x];
+        for (uint32_t i = threadIdx.x + RADIX; i < BIN_HISTS_SIZE; i += RADIX)
+        {
+            reduction += s_warpHistograms[i];
+            s_warpHistograms[i] = reduction - s_warpHistograms[i];
+        }
+
+        atomicAdd((uint32_t*)&passHistogram[threadIdx.x + (partitionIndex + 1) * RADIX],
+            FLAG_REDUCTION | reduction << 2);
+
+        //begin the exclusive prefix sum across the reductions
+        s_localHistogram[threadIdx.x] = InclusiveWarpScanCircularShift(reduction);
+    }
+    __syncthreads();
+
+    if (threadIdx.x < (RADIX >> LANE_LOG))
+        s_localHistogram[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_localHistogram[threadIdx.x << LANE_LOG]);
+    __syncthreads();
+
+    if (threadIdx.x < RADIX && getLaneId())
+        s_localHistogram[threadIdx.x] += __shfl_sync(0xfffffffe, s_localHistogram[threadIdx.x - 1], 1);
+    __syncthreads();
+
+    //update offsets
+    if (WARP_INDEX)
+    {
+        #pragma unroll 
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        {
+            const uint32_t t2 = keys[i] >> radixShift & RADIX_MASK;
+            offsets[i] += s_warpHist[t2] + s_localHistogram[t2];
+        }
+    }
+    else
+    {
+        #pragma unroll
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+            offsets[i] += s_localHistogram[keys[i] >> radixShift & RADIX_MASK];
+    }
+    __syncthreads();
+
+    //scatter keys into shared memory
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        s_warpHistograms[offsets[i]] = keys[i];
+
+    //lookback
+    if (threadIdx.x < RADIX)
+    {
+        uint32_t reduction = 0;
+        for (uint32_t k = partitionIndex; k >= 0; )
+        {
+            const uint32_t flagPayload = passHistogram[threadIdx.x + k * RADIX];
+
+            if ((flagPayload & FLAG_MASK) == FLAG_INCLUSIVE)
+            {
+                reduction += flagPayload >> 2;
+                atomicAdd((uint32_t*)&passHistogram[threadIdx.x + (partitionIndex + 1) * RADIX], 1 | (reduction << 2));
+                s_localHistogram[threadIdx.x] = reduction - s_localHistogram[threadIdx.x];
+                break;
+            }
+
+            if ((flagPayload & FLAG_MASK) == FLAG_REDUCTION)
+            {
+                reduction += flagPayload >> 2;
+                k--;
+            }
+        }
+    }
+    __syncthreads();
+
+   
+    if (partitionIndex < gridDim.x - 1)
+    {
+        //store the scatter index in key register to reuse for payloads
+        //scatter in the same warp striped format as loaded in, to reuse 
+        //the offsets we already calculated.
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            keys[i] = s_localHistogram[s_warpHistograms[t] >> radixShift & RADIX_MASK] + t;
+            alt[keys[i]] = s_warpHistograms[t];
+        }
+        __syncthreads();
+
+        //Reuse the offsets to scatter payloads in order directly from device memory
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            s_warpHistograms[offsets[i]] = sortPayload[t];
+        }
+        __syncthreads();
+
+        //Now scatter the payloads using the values stored in the keys reg
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            altPayload[keys[i]] = s_warpHistograms[t];
+        }
+    }
+
+    if (partitionIndex == gridDim.x - 1)
+    {
+        //In the final partition, each thread must determine how many keys it will process
+        uint32_t finalKeys;
+        int32_t subPartSize = (int32_t)(size - BIN_PART_START) - (int32_t)BIN_SUB_PART_START;
+        if (subPartSize > 0)
+        {
+            if ((uint32_t)subPartSize >= BIN_SUB_PART_SIZE)
+            {
+                finalKeys = BIN_KEYS_PER_THREAD;
+            }
+            else
+            {
+                finalKeys = subPartSize / LANE_COUNT;
+                subPartSize -= (int32_t)(finalKeys * LANE_COUNT); //cannot go below zero
+                if (getLaneId() < (uint32_t)subPartSize)
+                    finalKeys++;
+            }
+        }
+        else
+        {
+            finalKeys = 0;
+        }
+
+        //store the scatter index in key register to reuse for payloads
+        //scatter in the same warp striped format as loaded in, to reuse 
+        //the offsets we already calculated.
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            if (i < finalKeys)
+            {
+                keys[i] = s_localHistogram[s_warpHistograms[t] >> radixShift & RADIX_MASK] + t;
+                alt[keys[i]] = s_warpHistograms[t];
+            }
+        }
+        __syncthreads();
+
+        //Reuse the offsets to scatter payloads in order directly from device memory
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            if (i < finalKeys)
+                s_warpHistograms[offsets[i]] = sortPayload[t];
+        }
+        __syncthreads();
+
+        //Now scatter the payloads using the values stored in the keys reg
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
+            i < BIN_KEYS_PER_THREAD;
+            ++i, t += LANE_COUNT)
+        {
+            if (i < finalKeys)
+                altPayload[keys[i]] = s_warpHistograms[t];
+        }
     }
 }

@@ -33,9 +33,19 @@ namespace OneSweep
         uint32_t* thirdPassHistogram,
         uint32_t* fourthPassHistogram);
 
-    __global__ void DigitBinningPass(
+    __global__ void DigitBinningPassKeysOnly(
         uint32_t* sort,
         uint32_t* alt,
+        volatile uint32_t* passHistogram,
+        volatile uint32_t* index,
+        uint32_t size,
+        uint32_t radixShift);
+
+    __global__ void DigitBinningPassPairs(
+        uint32_t* sort,
+        uint32_t* sortPayload,
+        uint32_t* alt,
+        uint32_t* altPayload,
         volatile uint32_t* passHistogram,
         volatile uint32_t* index,
         uint32_t size,

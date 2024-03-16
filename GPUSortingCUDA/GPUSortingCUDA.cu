@@ -13,19 +13,36 @@
 
 int main()
 {
-    OneSweepDispatcher* oneSweep = new OneSweepDispatcher(1 << 28);
-    oneSweep->TestAll();
-    oneSweep->BatchTiming(1 << 28, 50, 10, ENTROPY_PRESET_1);
+    printf("-----------------BEGINNING KEYS TESTS-----------------\n\n");
+    OneSweepDispatcher* oneSweep = new OneSweepDispatcher(true, 1 << 28);
+    oneSweep->TestAllKeysOnly();
+    oneSweep->BatchTimingKeysOnly(1 << 28, 500, 10, ENTROPY_PRESET_1);
     oneSweep->~OneSweepDispatcher();
 
-    DeviceRadixSortDispatcher* dvr = new DeviceRadixSortDispatcher(1 << 28);
-    dvr->TestAll();
-    dvr->BatchTiming(1 << 28, 50, 10, ENTROPY_PRESET_1);
+    DeviceRadixSortDispatcher* dvr = new DeviceRadixSortDispatcher(true, 1 << 28);
+    dvr->TestAllKeysOnly();
+    dvr->BatchTimingKeysOnly(1 << 28, 500, 10, ENTROPY_PRESET_1);
     dvr->~DeviceRadixSortDispatcher();
 
-    CubDispatcher* cub = new CubDispatcher(1 << 28);
-    cub->BatchTimingCubDeviceRadixSort(1 << 28, 50, 10, ENTROPY_PRESET_1);
-    cub->BatchTimingCubOneSweep(1 << 28, 50, 10, ENTROPY_PRESET_1);
+    CubDispatcher* cub = new CubDispatcher(1 << 28, true);
+    cub->BatchTimingCubDeviceRadixSortKeys(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    cub->BatchTimingCubOneSweepKeys(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    cub->~CubDispatcher();
+
+    printf("----------------BEGINNING PAIRS TESTS----------------\n\n");
+    oneSweep = new OneSweepDispatcher(false, 1 << 28);
+    oneSweep->TestAllPairs();
+    oneSweep->BatchTimingPairs(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    oneSweep->~OneSweepDispatcher();
+
+    dvr = new DeviceRadixSortDispatcher(false, 1 << 28);
+    dvr->TestAllPairs();
+    dvr->BatchTimingPairs(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    dvr->~DeviceRadixSortDispatcher();
+
+    cub = new CubDispatcher(1 << 28, false);
+    cub->BatchTimingCubDeviceRadixSortPairs(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    cub->BatchTimingCubOneSweepPairs(1 << 28, 500, 10, ENTROPY_PRESET_1);
     cub->~CubDispatcher();
 
     return 0;
