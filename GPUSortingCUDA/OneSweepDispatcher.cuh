@@ -97,7 +97,11 @@ public:
 		uint32_t testsPassed = 0;
 		for (uint32_t i = k_partitionSize; i < k_partitionSize * 2 + 1; ++i)
 		{
-			InitRandom<<<256, 256>>>(m_sort, i, i);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				ENTROPY_PRESET_1,
+				i,
+				i);
 			DispatchKernelsKeysOnly(i);
 			if (DispatchValidateKeys(i))
 				testsPassed++;
@@ -111,7 +115,11 @@ public:
 
 		for (uint32_t i = 26; i <= 28; ++i)
 		{
-			InitRandom <<<256, 256 >>> (m_sort, 1 << i, 5);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				ENTROPY_PRESET_1,
+				i,
+				1 << i);
 			DispatchKernelsKeysOnly(1 << i);
 			if (DispatchValidateKeys(1 << i))
 				testsPassed++;
@@ -144,7 +152,12 @@ public:
 		uint32_t testsPassed = 0;
 		for (uint32_t i = k_partitionSize; i < k_partitionSize * 2 + 1; ++i)
 		{
-			InitRandom<<<256, 256>>>(m_sort, m_sortPayload, i, i);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				m_sortPayload,
+				ENTROPY_PRESET_1,
+				i,
+				i);
 			DispatchKernelsPairs(i);
 			if (DispatchValidatePairs(i))
 				testsPassed++;
@@ -158,7 +171,12 @@ public:
 
 		for (uint32_t i = 26; i <= 28; ++i)
 		{
-			InitRandom <<<256, 256 >>> (m_sort, m_sortPayload, 1 << i, 5);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				m_sortPayload,
+				ENTROPY_PRESET_1,
+				i,
+				1 << i);
 			DispatchKernelsPairs(1 << i);
 			if (DispatchValidatePairs(1 << i))
 				testsPassed++;
@@ -183,7 +201,7 @@ public:
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
 		printf("Beginning GPUSorting OneSweep keys batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		cudaEvent_t start;
@@ -194,9 +212,11 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom<<<256, 256>>>(m_sort, size, i + seed);
-			if(entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled<<<256, 256>>>(m_sort, entropyPreset, size);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cudaDeviceSynchronize();
 			cudaEventRecord(start);
 			DispatchKernelsKeysOnly(size);
@@ -235,7 +255,7 @@ public:
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
 		printf("Beginning GPUSorting OneSweep pairs batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		cudaEvent_t start;
@@ -246,9 +266,11 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom << <256, 256 >> > (m_sort, size, i + seed);
-			if (entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled << <256, 256 >> > (m_sort, entropyPreset, size);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cudaDeviceSynchronize();
 			cudaEventRecord(start);
 			DispatchKernelsPairs(size);

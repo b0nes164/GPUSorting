@@ -34,7 +34,8 @@ struct policy_hub_t
 		static constexpr bool ONESWEEP = true;
 		static constexpr bool OFFSET_64BIT = sizeof(OffsetT) == 8;
 
-		using OnesweepPolicy = cub::AgentRadixSortOnesweepPolicy< 512,
+		using OnesweepPolicy = cub::AgentRadixSortOnesweepPolicy< 
+			512,
 			15,
 			DominantT,
 			1,
@@ -44,9 +45,10 @@ struct policy_hub_t
 			ONESWEEP_RADIX_BITS>;
 
 		using HistogramPolicy =
-			cub::AgentRadixSortHistogramPolicy<128, 16, 1, KeyT, ONESWEEP_RADIX_BITS>;
+			cub::AgentRadixSortHistogramPolicy<128, 16, 2, KeyT, ONESWEEP_RADIX_BITS>;
 		using ExclusiveSumPolicy = cub::AgentRadixSortExclusiveSumPolicy<256, ONESWEEP_RADIX_BITS>;
-		using ScanPolicy = cub::AgentScanPolicy<512,
+		using ScanPolicy = cub::AgentScanPolicy<
+			512,
 			23,
 			OffsetT,
 			cub::BLOCK_LOAD_WARP_TRANSPOSE,
@@ -56,7 +58,8 @@ struct policy_hub_t
 
 		static constexpr int SINGLE_TILE_RADIX_BITS = (sizeof(KeyT) > 1) ? 6 : 5;
 
-		using SingleTilePolicy = cub::AgentRadixSortDownsweepPolicy<256,
+		using SingleTilePolicy = cub::AgentRadixSortDownsweepPolicy<
+			256,
 			19,
 			DominantT,
 			cub::BLOCK_LOAD_DIRECT,
@@ -71,18 +74,19 @@ struct policy_hub_t
 
 class CubDispatcher
 {
-	const uint32_t k_maxSize;
 	const bool k_keysOnly;
+	const uint32_t k_maxSize;
+	
 	uint32_t* m_sort;
 	uint32_t* m_payloads;
 	uint32_t* m_errCount;
 
 public:
 	CubDispatcher(
-		uint32_t size,
-		bool keysOnly) :
-		k_maxSize(size),
-		k_keysOnly(keysOnly)
+		bool keysOnly,
+		uint32_t size) :
+		k_keysOnly(keysOnly),
+		k_maxSize(size)
 	{
 		cudaMalloc(&m_sort, k_maxSize * sizeof(uint32_t));
 		cudaMalloc(&m_errCount, sizeof(uint32_t));
@@ -107,9 +111,9 @@ public:
 		}
 
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
-		printf("Beginning CUB DeviceRadixSort batch timing test at:\n");
+		printf("Beginning CUB DeviceRadixSort keys batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		void* d_temp_storage = NULL;
@@ -126,9 +130,11 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom <<<256, 256 >>> (m_sort, size, i + seed);
-			if (entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled <<<256, 256 >>> (m_sort, entropyPreset, size);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cudaDeviceSynchronize();
 			cudaEventRecord(start);
 			cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes,
@@ -167,9 +173,9 @@ public:
 		}
 
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
-		printf("Beginning CUB DeviceRadixSort batch timing test at:\n");
+		printf("Beginning CUB DeviceRadixSort pairs batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		void* d_temp_storage = NULL;
@@ -192,9 +198,11 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom << <256, 256 >> > (m_sort, size, i + seed);
-			if (entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled <<<256, 256 >>> (m_sort, entropyPreset, size);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cudaDeviceSynchronize();
 			cudaEventRecord(start);
 			cub::DeviceRadixSort::SortPairs(
@@ -234,9 +242,9 @@ public:
 		}
 
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
-		printf("Beginning CUB OneSweep batch timing test at:\n");
+		printf("Beginning CUB OneSweep keys batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		constexpr int begin_bit = 0;
@@ -271,13 +279,15 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom <<<256, 256 >>> (m_sort, size, i + seed);
-			if (entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled <<<256, 256 >>> (m_sort, entropyPreset, size);
-			cudaDeviceSynchronize();
-			cudaEventRecord(start);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cub::DoubleBuffer<uint32_t> d_keys(m_sort, m_sort);
 			cub::DoubleBuffer<cub::NullType> d_values;
+			cudaDeviceSynchronize();
+			cudaEventRecord(start);
 			dispatch_t::Dispatch(temp_storage,
 				temp_storage_bytes,
 				d_keys,
@@ -320,9 +330,9 @@ public:
 		}
 
 		const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
-		printf("Beginning CUB OneSweep batch timing test at:\n");
+		printf("Beginning CUB OneSweep pairs batch timing test at:\n");
 		printf("Size: %u\n", size);
-		printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+		printf("Entropy: %f bits\n", entLookup[entropyPreset]);
 		printf("Test size: %u\n", batchCount);
 
 		constexpr int begin_bit = 0;
@@ -357,13 +367,15 @@ public:
 		float totalTime = 0.0f;
 		for (uint32_t i = 0; i <= batchCount; ++i)
 		{
-			InitRandom << <256, 256 >> > (m_sort, size, i + seed);
-			if (entropyPreset > ENTROPY_PRESET_1)
-				InitEntropyControlled << <256, 256 >> > (m_sort, entropyPreset, size);
-			cudaDeviceSynchronize();
-			cudaEventRecord(start);
+			InitRandom <<<256, 256 >>> (
+				m_sort,
+				entropyPreset,
+				i + seed,
+				size);
 			cub::DoubleBuffer<uint32_t> d_keys(m_sort, m_sort);
 			cub::DoubleBuffer<uint32_t> d_values(m_payloads, m_payloads);
+			cudaDeviceSynchronize();
+			cudaEventRecord(start);
 			dispatch_t::Dispatch(temp_storage,
 				temp_storage_bytes,
 				d_keys,

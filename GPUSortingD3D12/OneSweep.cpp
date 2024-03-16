@@ -152,7 +152,6 @@ void OneSweep::InitComputeShaders()
     m_scan = new OneSweepKernels::Scan(m_device, m_devInfo, m_compileArguments);
     m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments);
     m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_initEntropy = new InitEntropyControlled(m_device, m_devInfo, m_compileArguments);
     m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
     m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
 }

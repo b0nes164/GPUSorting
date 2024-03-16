@@ -110,3 +110,12 @@ __device__ __forceinline__ uint32_t ActiveExclusiveWarpScan(uint32_t val)
 	const uint32_t t = __shfl_up_sync(mask, val, 1, 32);
 	return getLaneId() ? t : 0;
 }
+
+__device__ __forceinline__ double WarpReduceSum(double val)
+{
+	#pragma unroll
+	for (int mask = 16; mask; mask >>= 1) // 16 = LANE_COUNT >> 1
+		val += __shfl_xor_sync(0xffffffff, val, mask, LANE_COUNT);
+
+	return val;
+}

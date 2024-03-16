@@ -61,111 +61,57 @@ groupshared float g_valPayload[VAL_PART_SIZE + 1];
 #define LCG_STEP    (z4 * 1664525 + 1013904223U)
 #define HYBRID_TAUS (z1 ^ z2 ^ z3 ^ z4)
 
-//Initialize the input on the GPU, assumes threadblocks = 256
-//Match the payload to the output (on a bit-level)
-//That way, if the payload was sorting correctly, we can check
-//In the same way we check the keys.
-//This is a bit of a hack (does not directly test stability of the payloads), 
-//but if sort was not stable, the keys would fail, and payloads would fail
-
-[numthreads(VAL_THREADS, 1, 1)]
-void InitSortInput(int3 id : SV_DispatchThreadID)
-{
-    const uint numKeys = e_numKeys;
-    const uint inc = VAL_THREADS * 256;
-    
-    uint z1 = (id.x << 2) * e_seed;
-    uint z2 = ((id.x << 2) + 1) * e_seed;
-    uint z3 = ((id.x << 2) + 2) * e_seed;
-    uint z4 = ((id.x << 2) + 3) * e_seed;
-    
-    z1 = TAUS_STEP_1;
-    z2 = TAUS_STEP_2;
-    z3 = TAUS_STEP_3;
-    z4 = LCG_STEP;
-    
-    for (uint i = id.x; i < numKeys; i += inc)
-    {
-        z1 = TAUS_STEP_1;
-        z2 = TAUS_STEP_2;
-        z3 = TAUS_STEP_3;
-        z4 = LCG_STEP;
-#if defined(KEY_UINT)
-        b_sort[i] = HYBRID_TAUS;
-#elif defined (KEY_INT)
-        b_sort[i] = asint(HYBRID_TAUS);
-#elif defined (KEY_FLOAT)
-        b_sort[i] = asfloat(HYBRID_TAUS);
-#endif
-        
-#if defined(SORT_PAIRS)
-    #if defined(PAYLOAD_UINT)
-        b_sortPayload[i] = HYBRID_TAUS;
-    #elif defined (PAYLOAD_INT)
-        b_sortPayload[i] = asint(HYBRID_TAUS);
-    #elif defined (PAYLOAD_FLOAT)
-        b_sortPayload[i] = asfloat(HYBRID_TAUS);
-    #endif
-#endif
-    }
-}
-
 //An Improved Supercomputer Sorting Benchmark
 //Kurt Thearling & Stephen Smith
 //Bitwise AND successive keys together to decrease entropy
 //in a way that is evenly distributed across histogramming
 //passes.
-//NOTE this will break payload validation, which assumes keys and
-//payloads have identical values.
 //Number of Keys ANDed | Entropy
-//        1            |  1.0 bits
-//        2            | .811 bits
-//        3            | .544 bits
-//        4            | .337 bits
-//        5            | .201 bits
+//        0            |  1.0 bits
+//        1            | .811 bits
+//        2            | .544 bits
+//        3            | .337 bits
+//        4            | .201 bits
 [numthreads(VAL_THREADS, 1, 1)]
-void InitEntropyControlled(int3 id : SV_DispatchThreadID)
+void InitSortInput(int3 id : SV_DispatchThreadID)
 {
-    const uint increment = VAL_THREADS * 256;
-    const uint alignedEnd = e_numKeys / e_andCount;
-    for (uint i = id.x * e_andCount; i < alignedEnd; i += increment)
+    const uint numKeys = e_numKeys;
+    const uint inc = VAL_THREADS * 256;
+    const uint _andCount = e_andCount;
+    uint z1 = (id.x << 2) * e_seed;
+    uint z2 = ((id.x << 2) + 1) * e_seed;
+    uint z3 = ((id.x << 2) + 2) * e_seed;
+    uint z4 = ((id.x << 2) + 3) * e_seed;
+    
+    for (uint i = id.x; i < numKeys; i += inc)
     {
-        for (uint k = 1; k < e_andCount; ++k)
+        uint t = 0xffffffff;
+        for (uint k = 0; k <= _andCount; ++k)
         {
-#if defined(KEY_UINT)
-            b_sort[i + k] &= b_sort[i + k - 1];
-#elif defined (KEY_INT) || defined (KEY_FLOAT)
-            uint t = asuint(b_sort[i + k]);
-            t &= asuint(b_sort[i + k - 1]);
-#endif
-#if defined(KEY_INT)
-            b_sort[i + k] = asint(t);
-#elif defined(KEY_FLOAT)
-            b_sort[i + k] = asfloat(t);
-#endif
-            
-        } 
-    }
-
-    if (!id.x)
-    {
-        for (uint k = 1; k < e_andCount; ++k)
-        {
-            if (alignedEnd + k < e_numKeys)
-            {
-#if defined(KEY_UINT)
-            b_sort[alignedEnd + k] &= b_sort[alignedEnd + k - 1];
-#elif defined (KEY_INT) || defined (KEY_FLOAT)
-            uint t = asuint(b_sort[alignedEnd + k]);
-            t &= asuint(b_sort[alignedEnd + k - 1]);
-#endif
-#if defined(KEY_INT)
-            b_sort[alignedEnd + k] = asint(t);
-#elif defined(KEY_FLOAT)
-            b_sort[alignedEnd + k] = asfloat(t);
-#endif
-            }
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            t &= HYBRID_TAUS;
         }
+        
+#if defined(KEY_UINT)
+        b_sort[i] = t;
+#elif defined (KEY_INT)
+        b_sort[i] = asint(t);
+#elif defined (KEY_FLOAT)
+        b_sort[i] = asfloat(t);
+#endif
+        
+#if defined(SORT_PAIRS)
+    #if defined(PAYLOAD_UINT)
+        b_sortPayload[i] = t;
+    #elif defined (PAYLOAD_INT)
+        b_sortPayload[i] = asint(t);
+    #elif defined (PAYLOAD_FLOAT)
+        b_sortPayload[i] = asfloat(t);
+    #endif
+#endif
     }
 }
 
@@ -184,6 +130,7 @@ void ClearErrorCount(int3 id : SV_DispatchThreadID)
     b_errorCount[0] = 0;
 }
 
+//Assuming values are identical to keys, payloads must also be in sorted order
 [numthreads(VAL_THREADS, 1, 1)]
 void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
 {

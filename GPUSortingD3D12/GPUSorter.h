@@ -46,7 +46,6 @@ protected:
     winrt::com_ptr<ID3D12Resource> m_readBackBuffer;
 
     InitSortInput* m_initSortInput;
-    InitEntropyControlled* m_initEntropy;
     ClearErrorCount* m_clearErrorCount;
     Validate* m_validate;
 
@@ -122,7 +121,7 @@ public:
         PrintSortingConfig(m_sortingConfig);
         printf("batch timing test at:\n");
         printf("Size: %u\n", inputSize);
-        printf("Entropy: %f bits\n", entLookup[entropyPreset - 1]);
+        printf("Entropy: %f bits\n", entLookup[entropyPreset]);
         printf("Test size: %u\n", batchSize);
         double totalTime = 0.0;
         for (uint32_t i = 0; i <= batchSize; ++i)
@@ -186,6 +185,7 @@ protected:
             m_sortBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_numKeys,
+            ENTROPY_PRESET_1,
             seed);
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
         ExecuteCommandList();
@@ -199,18 +199,9 @@ protected:
             m_sortBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_numKeys,
+            entropyPreset,
             seed);
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
-
-        if (entropyPreset > ENTROPY_PRESET_1)
-        {
-            m_initEntropy->Dispatch(
-                m_cmdList,
-                m_sortBuffer->GetGPUVirtualAddress(),
-                m_numKeys,
-                entropyPreset);
-            UAVBarrierSingle(m_cmdList, m_sortBuffer);
-        }
         ExecuteCommandList();
     }
 

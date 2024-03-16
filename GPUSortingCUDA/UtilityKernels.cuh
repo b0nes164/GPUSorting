@@ -11,15 +11,16 @@
 #include <stdint.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "Utils.cuh"
 
 typedef
 enum ENTROPY_PRESET
 {
-   ENTROPY_PRESET_1 = 1,
-   ENTROPY_PRESET_2 = 2,
-   ENTROPY_PRESET_3 = 3,
-   ENTROPY_PRESET_4 = 4,
-   ENTROPY_PRESET_5 = 5,
+   ENTROPY_PRESET_1 = 0,
+   ENTROPY_PRESET_2 = 1,
+   ENTROPY_PRESET_3 = 2,
+   ENTROPY_PRESET_4 = 3,
+   ENTROPY_PRESET_5 = 4,
 }   ENTROPY_PRESET;
 
 //Hybrid LCG-Tausworthe PRNG
@@ -38,78 +39,73 @@ __global__ void InitDescending(uint32_t* sort, uint32_t size)
         sort[i] = size - i;
 }
 
-//Initialize the input to random integers. Because this is higher entropy than the descending sequence, and
-//becuase we do not implement short circuit evaluation, this tends to be significantly faster
-__global__ void InitRandom(uint32_t* sort, uint32_t size, uint32_t seed)
-{
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-
-    uint32_t z1 = (idx << 2) * seed;
-    uint32_t z2 = ((idx << 2) + 1) * seed;
-    uint32_t z3 = ((idx << 2) + 2) * seed;
-    uint32_t z4 = ((idx << 2) + 3) * seed;
-
-    for (uint32_t i = threadIdx.x + blockDim.x * blockIdx.x; i < size; i += blockDim.x * gridDim.x)
-    {
-        z1 = TAUS_STEP_1;
-        z2 = TAUS_STEP_2;
-        z3 = TAUS_STEP_3;
-        z4 = LCG_STEP;
-        sort[i] = HYBRID_TAUS;
-    }
-}
-
-__global__ void InitRandom(uint32_t* sort, uint32_t* sortPayload, uint32_t size, uint32_t seed)
-{
-    int idx = threadIdx.x + blockDim.x * blockIdx.x;
-
-    uint32_t z1 = (idx << 2) * seed;
-    uint32_t z2 = ((idx << 2) + 1) * seed;
-    uint32_t z3 = ((idx << 2) + 2) * seed;
-    uint32_t z4 = ((idx << 2) + 3) * seed;
-
-    for (uint32_t i = threadIdx.x + blockDim.x * blockIdx.x; i < size; i += blockDim.x * gridDim.x)
-    {
-        z1 = TAUS_STEP_1;
-        z2 = TAUS_STEP_2;
-        z3 = TAUS_STEP_3;
-        z4 = LCG_STEP;
-        const uint32_t t = HYBRID_TAUS;
-        sort[i] = t;
-        sortPayload[i] = t;
-    }
-}
-
 //An Improved Supercomputer Sorting Benchmark
 //Kurt Thearling & Stephen Smith
 //Bitwise AND successive keys together to decrease entropy
 //in a way that is evenly distributed across histogramming
 //passes.
-//Number of Keys ANDed | Entropy
-//        1            |  1.0 bits
-//        2            | .811 bits
-//        3            | .544 bits
-//        4            | .337 bits
-//        5            | .201 bits
-__global__ void InitEntropyControlled(uint32_t* sort, uint32_t andCount, uint32_t size)
+//Number of Keys ANDed | Entropy per bit
+//        0            |  1.0 bits
+//        1            | .811 bits
+//        2            | .544 bits
+//        3            | .337 bits
+//        4            | .201 bits
+__global__ void InitRandom(
+    uint32_t* sort,
+    uint32_t andCount,
+    uint32_t seed,
+    uint32_t size)
 {
-    const uint32_t increment =  blockDim.x * gridDim.x * andCount;
-    const uint32_t alignedEnd = size / andCount * andCount;
-    for (uint32_t i = (threadIdx.x + blockDim.x * blockIdx.x) * andCount;
-        i < alignedEnd;
-        i += increment)
-    {
-        for (uint32_t k = 1; k < andCount; ++k)
-            sort[i + k] &= sort[i + k - 1];
-    }
+    uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
 
-    if (threadIdx.x == 0 && blockIdx.x == 0)
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    for (uint32_t i = idx; i < size; i += blockDim.x * gridDim.x)
     {
-        for (uint32_t k = 1; k < andCount; ++k)
+        uint32_t t = 0xffffffff;
+        for (uint32_t k = 0; k <= andCount; ++k)
         {
-            if(alignedEnd + k < size)
-                sort[alignedEnd + k] &= sort[alignedEnd + k - 1];
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            t &= HYBRID_TAUS;
         }
+        sort[i] = t;
+    }
+}
+
+__global__ void InitRandom(
+    uint32_t* sort,
+    uint32_t* sortPayload,
+    uint32_t andCount,
+    uint32_t seed,
+    uint32_t size)
+{
+    uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    for (uint32_t i = idx; i < size; i += blockDim.x * gridDim.x)
+    {
+        uint32_t t = 0xffffffff;
+        for (uint32_t k = 0; k <= andCount; ++k)
+        {
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            t &= HYBRID_TAUS;
+        }
+        sort[i] = t;
+        sort[i] = t;
+        sortPayload[i] = t;
     }
 }
 
@@ -191,6 +187,7 @@ __global__ void Validate(uint32_t* sort, uint32_t* sortPayload, uint32_t* errCou
         }
     }
 }
+
 __global__ void Print(uint32_t* toPrint, uint32_t size)
 {
     for (uint32_t i = 0; i < size; ++i)
