@@ -10,15 +10,15 @@ GPUSorting includes two sorting algorithms, both based on those found in the CUB
 
 As a measure of the quality of the code, GPUSorting has also been implemented in CUDA and benchmarked against Nvidia's [CUB](https://github.com/NVIDIA/cccl) library, with the following results:
 
-![GPUSorting vs CUB](https://github.com/b0nes164/GPUSorting/assets/68340554/4804484e-7360-4607-b07f-a8760244d556) 
+![GPUSorting vs CUB](https://github.com/b0nes164/GPUSorting/assets/68340554/421ac4a3-6077-45af-b4cf-d27395b4d9b1)
 
 ## Thearling and Smith Benchmark:
-![OneSweep Thearling and Smith Benchmark](https://github.com/b0nes164/GPUSorting/assets/68340554/60b03468-636b-42df-99d9-e27d63eeb300)
+![OneSweep Thearling and Smith Benchmark](https://github.com/b0nes164/GPUSorting/assets/68340554/3007376f-2cdc-4698-869f-d6b2f4a127dc)
 
 ## Tuning for Different Devices:
 Currently, GPUSorting does not incorporate any sort of device-based tuning; instead, it uses a "middle-of-the-road" tuning preset that appears to work well on most devices:
 
-![GPUSorting D3D12 Speeds](https://github.com/b0nes164/GPUSorting/assets/68340554/08728224-1b90-4052-b546-57601f1b9b20)
+![GPUSorting D3D12 Speeds](https://github.com/b0nes164/GPUSorting/assets/68340554/e00e0622-3f12-4526-b993-390d28965c73)
 
 # Getting Started
 
