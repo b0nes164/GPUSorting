@@ -399,100 +399,82 @@ __global__ void DeviceRadixSort::DownsweepPairs(
 	__syncthreads();
 
 	//scatter runs of keys into device memory
-	if (blockIdx.x < gridDim.x - 1)
+	uint8_t digits[BIN_KEYS_PER_THREAD];
+    if (blockIdx.x < gridDim.x - 1)
     {
-        //store the scatter index in key register to reuse for payloads
-        //scatter in the same warp striped format as loaded in, to reuse 
-        //the offsets we already calculated.
+        //store the digit of key in register
         #pragma unroll
-        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
-            i < BIN_KEYS_PER_THREAD;
-            ++i, t += LANE_COUNT)
+        for (uint32_t i = 0, t = threadIdx.x; i < BIN_KEYS_PER_THREAD;
+            ++i, t += blockDim.x)
         {
-            keys[i] = s_localHistogram[s_warpHistograms[t] >> radixShift & RADIX_MASK] + t;
-            alt[keys[i]] = s_warpHistograms[t];
+            digits[i] = s_warpHistograms[t] >> radixShift & RADIX_MASK;
+            alt[s_localHistogram[digits[i]] + t] = s_warpHistograms[t];
         }
         __syncthreads();
 
-        //Reuse the offsets to scatter payloads in order directly from device memory
+        //Load payloads into registers
         #pragma unroll
         for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
             i < BIN_KEYS_PER_THREAD;
             ++i, t += LANE_COUNT)
         {
-            s_warpHistograms[offsets[i]] = sortPayload[t];
+            keys[i] = sortPayload[t];
         }
+
+        //scatter payloads into shared memory
+        #pragma unroll
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+            s_warpHistograms[offsets[i]] = keys[i];
         __syncthreads();
 
-        //Now scatter the payloads using the values stored in the keys reg
+        //Scatter the payloads into device
         #pragma unroll
-        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
-            i < BIN_KEYS_PER_THREAD;
-            ++i, t += LANE_COUNT)
+        for (uint32_t i = 0, t = threadIdx.x; i < BIN_KEYS_PER_THREAD;
+            ++i, t += blockDim.x)
         {
-            altPayload[keys[i]] = s_warpHistograms[t];
+            altPayload[s_localHistogram[digits[i]] + t] = s_warpHistograms[t];
         }
     }
 
-	if (blockIdx.x == gridDim.x - 1)
+    if (blockIdx.x == gridDim.x - 1)
     {
-        //In the final partition, each thread must determine how many keys it will process
-        uint32_t finalKeys;
-        int32_t subPartSize = (int32_t)(size - BIN_PART_START) - (int32_t)BIN_SUB_PART_START;
-        if (subPartSize > 0)
-        {
-            if ((uint32_t)subPartSize >= BIN_SUB_PART_SIZE)
-            {
-                finalKeys = BIN_KEYS_PER_THREAD;
-            }
-            else
-            {
-                finalKeys = subPartSize / LANE_COUNT;
-                subPartSize -= (int32_t)(finalKeys * LANE_COUNT); //cannot go below zero
-                if (getLaneId() < (uint32_t)subPartSize)
-                    finalKeys++;
-            }
-        }
-        else
-        {
-            finalKeys = 0;
-        }
-
-        //store the scatter index in key register to reuse for payloads
-        //scatter in the same warp striped format as loaded in, to reuse 
-        //the offsets we already calculated.
+        const uint32_t finalPartSize = size - BIN_PART_START;
+        //store the digit of key in register
         #pragma unroll
-        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
-            i < BIN_KEYS_PER_THREAD;
-            ++i, t += LANE_COUNT)
+        for (uint32_t i = 0, t = threadIdx.x; i < BIN_KEYS_PER_THREAD;
+            ++i, t += blockDim.x)
         {
-            if (i < finalKeys)
+            if (t < finalPartSize)
             {
-                keys[i] = s_localHistogram[s_warpHistograms[t] >> radixShift & RADIX_MASK] + t;
-                alt[keys[i]] = s_warpHistograms[t];
+                digits[i] = s_warpHistograms[t] >> radixShift & RADIX_MASK;
+                alt[s_localHistogram[digits[i]] + t] = s_warpHistograms[t];
             }
         }
         __syncthreads();
 
-        //Reuse the offsets to scatter payloads in order directly from device memory
+        //Load payloads into registers
         #pragma unroll
         for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START;
             i < BIN_KEYS_PER_THREAD;
             ++i, t += LANE_COUNT)
         {
-            if (i < finalKeys)
-                s_warpHistograms[offsets[i]] = sortPayload[t];
+            if(t < size)
+                keys[i] = sortPayload[t];
         }
+
+        //scatter payloads into shared memory
+        #pragma unroll
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+            s_warpHistograms[offsets[i]] = keys[i];
         __syncthreads();
 
-        //Now scatter the payloads using the values stored in the keys reg
+        //Scatter the payloads into device
         #pragma unroll
-        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START;
-            i < BIN_KEYS_PER_THREAD;
-            ++i, t += LANE_COUNT)
+        for (uint32_t i = 0, t = threadIdx.x; i < BIN_KEYS_PER_THREAD;
+            ++i, t += blockDim.x)
         {
-            if (i < finalKeys)
-                altPayload[keys[i]] = s_warpHistograms[t];
+            if(t < finalPartSize)
+                altPayload[s_localHistogram[digits[i]] + t] = s_warpHistograms[t];
         }
     }
 }

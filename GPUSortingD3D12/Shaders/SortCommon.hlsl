@@ -30,9 +30,9 @@
 
 #define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass or DownSweep kernel
 #if defined(SORT_PAIRS)
-#define MAX_D_SMEM          8192U       //shared memory for a DigitBinningPass or DownSweep kernel
+#define MAX_D_SMEM          8192U   //shared memory for a DigitBinningPass or DownSweep kernel
 #else
-#define MAX_D_SMEM          4096U       //shared memory for a DigitBinningPass or DownSweep kernel
+#define MAX_D_SMEM          4096U   //shared memory for a DigitBinningPass or DownSweep kernel
 #endif
 
 cbuffer cbParallelSort : register(b0)
@@ -78,6 +78,15 @@ struct OffsetStruct
     uint16_t o[KEYS_PER_THREAD];
 #else
     uint o[KEYS_PER_THREAD];
+#endif
+};
+
+struct DigitStruct
+{
+#if defined(ENABLE_16_BIT)
+    uint16_t d[KEYS_PER_THREAD];
+#else
+    uint d[KEYS_PER_THREAD];
 #endif
 };
 
@@ -198,7 +207,7 @@ inline uint WaveHistsSizeWLT16()
 //some operations are peformed serially.
 inline uint SerialIterations()
 {
-    return (D_DIM / WaveGetLaneCount() + 31) / 32;
+    return (D_DIM / WaveGetLaneCount() + 31) >> 5;
 }
 
 inline void ClearWaveHists(uint gtid)
@@ -403,8 +412,6 @@ inline OffsetStruct RankKeysWLT16(uint gtid, KeyStruct keys, uint serialIteratio
             if (getWaveIndex(gtid.x) % serialIterations == k)
                 offsets.o[i] = ExtractPackedValue(g_d[index], keys.k[i]) + peerBits;
             
-            //shuffle trick will not work, because potentially two threads will
-            //atomically add to same digit counter due to bit packing
             GroupMemoryBarrierWithGroupSync();
             if (getWaveIndex(gtid.x) % serialIterations == k && peerBits == 0)
             {
@@ -569,13 +576,18 @@ inline void WriteKey(uint deviceIndex, uint groupSharedIndex)
 #endif
 }
 
-inline void LoadPayload(uint deviceIndex, uint groupSharedIndex)
+inline void LoadPayload(inout uint payload, uint deviceIndex)
 {
 #if defined(PAYLOAD_UINT)
-    g_d[groupSharedIndex] = b_sortPayload[deviceIndex];
+    payload = b_sortPayload[deviceIndex];
 #elif defined(PAYLOAD_INT) || defined(PAYLOAD_FLOAT)
-    g_d[groupSharedIndex] = asuint(b_sortPayload[deviceIndex]);
+    payload = asuint(b_sortPayload[deviceIndex]);
 #endif
+}
+
+inline void ScatterPayloadsShared(OffsetStruct offsets, KeyStruct payloads)
+{
+    ScatterKeysShared(offsets, payloads);
 }
 
 inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
@@ -595,6 +607,7 @@ inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
 //KEYS ONLY
 inline void ScatterKeysOnlyDeviceAscending(uint gtid)
 {
+    [unroll(KEYS_PER_THREAD)]
     for (uint i = gtid; i < PART_SIZE; i += D_DIM)
         WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
 }
@@ -603,6 +616,7 @@ inline void ScatterKeysOnlyDeviceDescending(uint gtid)
 {
     if(e_radixShift == 24)
     {
+        [unroll(KEYS_PER_THREAD)]
         for (uint i = gtid; i < PART_SIZE; i += D_DIM)
             WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
     }
@@ -622,85 +636,48 @@ inline void ScatterKeysOnlyDevice(uint gtid)
 }
 
 //KEY VALUE PAIRS
-inline void ScatterPairsKeyPhaseAscendingWGE16(uint gtid, inout KeyStruct keys)
-{
-    [unroll]
-    for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount())
-    {
-        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
-        WriteKey(keys.k[i], t);
-    }
-}
-
-inline void ScatterPairsKeyPhaseAscendingWLT16(
+inline void ScatterPairsKeyPhaseAscending(
     uint gtid,
-    uint serialIterations,
-    inout KeyStruct keys)
+    inout DigitStruct digits)
 {
     [unroll]
-    for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount() * serialIterations)
+    for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
     {
-        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
-        WriteKey(keys.k[i], t);
+        digits.d[i] = ExtractDigit(g_d[t]);
+        WriteKey(g_d[digits.d[i] + PART_SIZE] + t, t);
     }
 }
 
-inline void ScatterPairsKeyPhaseDescendingWGE16(uint gtid, inout KeyStruct keys)
+inline void ScatterPairsKeyPhaseDescending(
+    uint gtid,
+    inout DigitStruct digits)
 {
     if (e_radixShift == 24)
     {
         [unroll]
-        for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount())
+        for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
         {
-            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
-            WriteKey(keys.k[i], t);
+            digits.d[i] = ExtractDigit(g_d[t]);
+            WriteKey(DescendingIndex(g_d[digits.d[i] + PART_SIZE] + t), t);
         }
     }
     else
     {
-        ScatterPairsKeyPhaseAscendingWGE16(gtid, keys);
-    }
-}
-
-inline void ScatterPairsKeyPhaseDescendingWLT16(
-    uint gtid,
-    uint serialIterations,
-    inout KeyStruct keys)
-{
-    if (e_radixShift == 24)
-    {
-        [unroll]
-        for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount() * serialIterations)
-        {
-            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
-            WriteKey(keys.k[i], t);
-        }
-    }
-    else
-    {
-        ScatterPairsKeyPhaseAscendingWLT16(gtid, serialIterations, keys);
+        ScatterPairsKeyPhaseAscending(gtid, digits);
     }
 }
 
 inline void LoadPayloadsWGE16(
     uint gtid,
     uint partIndex,
-    OffsetStruct offsets)
+    inout KeyStruct payloads)
 {
     [unroll]
     for (uint i = 0, t = DeviceOffsetWGE16(gtid, partIndex);
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
     {
-        LoadPayload(t, offsets.o[i]);
+        LoadPayload(payloads.k[i], t);
     }
 }
 
@@ -708,107 +685,75 @@ inline void LoadPayloadsWLT16(
     uint gtid,
     uint partIndex,
     uint serialIterations,
-    OffsetStruct offsets)
+    inout KeyStruct payloads)
 {
     [unroll]
     for (uint i = 0, t = DeviceOffsetWLT16(gtid, partIndex, serialIterations);
         i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        LoadPayload(t, offsets.o[i]);
+        LoadPayload(payloads.k[i], t);
     }
 }
 
-inline void ScatterPayloadsWGE16(uint gtid, KeyStruct keys)
+inline void ScatterPayloadsAscending(uint gtid, DigitStruct digits)
 {
     [unroll]
-    for (uint i = 0, t = SharedOffsetWGE16(gtid);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount())
+    for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
+        WritePayload(g_d[digits.d[i] + PART_SIZE] + t, t);
+}
+
+inline void ScatterPayloadsDescending(uint gtid, DigitStruct digits)
+{
+    if (e_radixShift == 24)
     {
-        WritePayload(keys.k[i], t);
+        [unroll]
+        for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
+            WritePayload(DescendingIndex(g_d[digits.d[i] + PART_SIZE] + t), t);
+    }
+    else
+    {
+        ScatterPayloadsAscending(gtid, digits);
     }
 }
 
-inline void ScatterPayloadsWLT16(
-    uint gtid,
-    uint serialIterations,
-    KeyStruct keys)
-{
-    [unroll]
-    for (uint i = 0, t = SharedOffsetWLT16(gtid, serialIterations);
-        i < KEYS_PER_THREAD;
-        ++i, t += WaveGetLaneCount() * serialIterations)
-    {
-        WritePayload(keys.k[i], t);
-    }
-}
-
-inline void ScatterPairsDeviceWGE16(
+inline void ScatterPairsDevice(
     uint gtid,
     uint partIndex,
-    KeyStruct keys,
     OffsetStruct offsets)
 {
+    DigitStruct digits;
 #if defined(SHOULD_ASCEND)
-    ScatterPairsKeyPhaseAscendingWGE16(gtid, keys);
+    ScatterPairsKeyPhaseAscending(gtid, digits);
 #else
-    ScatterPairsKeyPhaseDescendingWGE16(gtid, keys);
+    ScatterPairsKeyPhaseDescending(gtid, digits);
 #endif
     GroupMemoryBarrierWithGroupSync();
-    LoadPayloadsWGE16(gtid, partIndex, offsets);
+    
+    KeyStruct payloads;
+    if (WaveGetLaneCount() >= 16)
+        LoadPayloadsWGE16(gtid, partIndex, payloads);
+    else
+        LoadPayloadsWLT16(gtid, partIndex, SerialIterations(), payloads);
+    ScatterPayloadsShared(offsets, payloads);
     GroupMemoryBarrierWithGroupSync();
-    ScatterPayloadsWGE16(gtid, keys);
-}
-
-inline void ScatterPairsDeviceWLT16(
-    uint gtid,
-    uint partIndex,
-    uint serialIterations,
-    KeyStruct keys,
-    OffsetStruct offsets)
-{
+    
 #if defined(SHOULD_ASCEND)
-    ScatterPairsKeyPhaseAscendingWLT16(gtid, serialIterations, keys);
+    ScatterPayloadsAscending(gtid, digits);
 #else
-    ScatterPairsKeyPhaseDescendingWLT16(gtid, serialIterations, keys);
+    ScatterPayloadsDescending(gtid, digits);
 #endif
-    GroupMemoryBarrierWithGroupSync();
-    LoadPayloadsWLT16(gtid, partIndex, serialIterations, offsets);
-    GroupMemoryBarrierWithGroupSync();
-    ScatterPayloadsWLT16(gtid, serialIterations, keys);
 }
 
-inline void ScatterDeviceWGE16(
+inline void ScatterDevice(
     uint gtid,
     uint partIndex,
-    KeyStruct keys,
     OffsetStruct offsets)
 {
 #if defined(SORT_PAIRS)
-    ScatterPairsDeviceWGE16(
+    ScatterPairsDevice(
         gtid,
         partIndex,
-        keys,
-        offsets);
-#else
-    ScatterKeysOnlyDevice(gtid);
-#endif
-}
-
-inline void ScatterDeviceWLT16(
-    uint gtid,
-    uint partIndex,
-    uint serialIterations,
-    KeyStruct keys,
-    OffsetStruct offsets)
-{
-#if defined(SORT_PAIRS)
-    ScatterPairsDeviceWLT16(
-        gtid,
-        partIndex,
-        serialIterations,
-        keys,
         offsets);
 #else
     ScatterKeysOnlyDevice(gtid);
@@ -818,48 +763,27 @@ inline void ScatterDeviceWLT16(
 //*****************************************************************************
 //SCATTERING: PARTIAL PARTITIONS
 //*****************************************************************************
-//Determine how many keys a thread will process in a partial partition
-inline uint FinalKey(
-    uint gtid,
-    uint partIndex,
-    uint serialIterations)
-{
-    int subPartSize = (int)(e_numKeys - partIndex * PART_SIZE) -
-            (int)(getWaveIndex(gtid) / serialIterations * KEYS_PER_THREAD * WaveGetLaneCount() * serialIterations);
-    if (subPartSize > 0)
-    {
-        if ((uint) subPartSize >= KEYS_PER_THREAD * WaveGetLaneCount() * serialIterations)
-        {
-            return KEYS_PER_THREAD;
-        }
-        else
-        {
-            uint finalKey = subPartSize / WaveGetLaneCount() / serialIterations;
-            subPartSize -= finalKey * WaveGetLaneCount() * serialIterations;
-            if (WaveGetLaneIndex() + getWaveIndex(gtid) % serialIterations * WaveGetLaneCount() < (uint)subPartSize)
-                finalKey++;
-            return finalKey;
-        }
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 //KEYS ONLY
 inline void ScatterKeysOnlyDevicePartialAscending(uint gtid, uint finalPartSize)
 {
-    for (uint i = gtid; i < finalPartSize; i += D_DIM)
-        WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
+    [unroll(KEYS_PER_THREAD)]
+    for (uint i = gtid; i < PART_SIZE; i += D_DIM)
+    {
+        if (i < finalPartSize)
+            WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
+    }
 }
 
 inline void ScatterKeysOnlyDevicePartialDescending(uint gtid, uint finalPartSize)
 {
     if (e_radixShift == 24)
     {
-        for (uint i = gtid; i < finalPartSize; i += D_DIM)
-            WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
+        [unroll(KEYS_PER_THREAD)]
+        for (uint i = gtid; i < PART_SIZE; i += D_DIM)
+        {
+            if (i < finalPartSize)
+                WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
+        }
     }
     else
     {
@@ -877,202 +801,148 @@ inline void ScatterKeysOnlyDevicePartial(uint gtid, uint partIndex)
 #endif
 }
 
-inline void ScatterPairsKeyPhaseAscendingPartialWGE16(
-    uint gtid,
-    uint finalKey,
-    inout KeyStruct keys)
-{
-    for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount())
-    {
-        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
-        WriteKey(keys.k[i], t);
-    }
-}
-
 //KEY VALUE PAIRS
-inline void ScatterPairsKeyPhaseAscendingPartialWLT16(
+inline void ScatterPairsKeyPhaseAscendingPartial(
     uint gtid,
-    uint finalKey,
-    uint serialIterations,
-    inout KeyStruct keys)
+    uint finalPartSize,
+    inout DigitStruct digits)
 {
-    for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount() * serialIterations)
+    [unroll]
+    for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
     {
-        keys.k[i] = g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t;
-        WriteKey(keys.k[i], t);
+        if(t < finalPartSize)
+        {
+            digits.d[i] = ExtractDigit(g_d[t]);
+            WriteKey(g_d[digits.d[i] + PART_SIZE] + t, t);
+        }
     }
 }
 
-inline void ScatterPairsKeyPhaseDescendingPartialWGE16(
+inline void ScatterPairsKeyPhaseDescendingPartial(
     uint gtid,
-    uint finalKey,
-    inout KeyStruct keys)
+    uint finalPartSize,
+    inout DigitStruct digits)
 {
     if (e_radixShift == 24)
     {
-        for (uint i = 0, t = SharedOffsetWGE16(gtid.x);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount())
+        [unroll]
+        for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
         {
-            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
-            WriteKey(keys.k[i], t);
+            if (t < finalPartSize)
+            {
+                digits.d[i] = ExtractDigit(g_d[t]);
+                WriteKey(DescendingIndex(g_d[digits.d[i] + PART_SIZE] + t), t);
+            }
         }
     }
     else
     {
-        ScatterPairsKeyPhaseAscendingPartialWGE16(gtid, finalKey, keys);
-    }
-}
-
-inline void ScatterPairsKeyPhaseDescendingPartialWLT16(
-    uint gtid,
-    uint finalKey,
-    uint serialIterations,
-    inout KeyStruct keys)
-{
-    if (e_radixShift == 24)
-    {
-        for (uint i = 0, t = SharedOffsetWLT16(gtid.x, serialIterations);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount() * serialIterations)
-        {
-            keys.k[i] = DescendingIndex(g_d[ExtractDigit(g_d[t]) + PART_SIZE] + t);
-            WriteKey(keys.k[i], t);
-        }
-    }
-    else
-    {
-        ScatterPairsKeyPhaseAscendingPartialWLT16(gtid, finalKey, serialIterations, keys);
+        ScatterPairsKeyPhaseAscendingPartial(gtid, finalPartSize, digits);
     }
 }
 
 inline void LoadPayloadsPartialWGE16(
     uint gtid,
-    uint finalKey,
     uint partIndex,
-    OffsetStruct offsets)
+    inout KeyStruct payloads)
 {
+    [unroll]
     for (uint i = 0, t = DeviceOffsetWGE16(gtid, partIndex);
-        i < finalKey;
+        i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount())
     {
-        LoadPayload(t, offsets.o[i]);
+        if (t < e_numKeys)
+            LoadPayload(payloads.k[i], t);
     }
 }
 
 inline void LoadPayloadsPartialWLT16(
     uint gtid,
-    uint finalKey,
     uint partIndex,
     uint serialIterations,
-    OffsetStruct offsets)
+    inout KeyStruct payloads)
 {
+    [unroll]
     for (uint i = 0, t = DeviceOffsetWLT16(gtid, partIndex, serialIterations);
-        i < finalKey;
+        i < KEYS_PER_THREAD;
         ++i, t += WaveGetLaneCount() * serialIterations)
     {
-        LoadPayload(t, offsets.o[i]);
+        if (t < e_numKeys)
+            LoadPayload(payloads.k[i], t);
     }
 }
 
-inline void ScatterPayloadsPartialWGE16(
+inline void ScatterPayloadsAscendingPartial(
     uint gtid,
-    uint finalKey,
-    KeyStruct keys)
+    uint finalPartSize,
+    DigitStruct digits)
 {
-    for (uint i = 0, t = SharedOffsetWGE16(gtid);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount())
+    [unroll]
+    for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
     {
-        WritePayload(keys.k[i], t);
+        if (t < finalPartSize)
+            WritePayload(g_d[digits.d[i] + PART_SIZE] + t, t);
     }
 }
 
-inline void ScatterPayloadsPartialWLT16(
+inline void ScatterPayloadsDescendingPartial(
     uint gtid,
-    uint finalKey,
-    uint serialIterations,
-    KeyStruct keys)
+    uint finalPartSize,
+    DigitStruct digits)
 {
-    for (uint i = 0, t = SharedOffsetWLT16(gtid, serialIterations);
-        i < finalKey;
-        ++i, t += WaveGetLaneCount() * serialIterations)
+    if (e_radixShift == 24)
     {
-        WritePayload(keys.k[i], t);
+        [unroll]
+        for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
+        {
+            if (t < finalPartSize)
+                WritePayload(DescendingIndex(g_d[digits.d[i] + PART_SIZE] + t), t);
+        }
+    }
+    else
+    {
+        ScatterPayloadsAscendingPartial(gtid, finalPartSize, digits);
     }
 }
 
-inline void ScatterPairsDevicePartialWLT16(
+inline void ScatterPairsDevicePartial(
     uint gtid,
     uint partIndex,
-    uint serialIterations,
-    KeyStruct keys,
     OffsetStruct offsets)
 {
-    const uint finalKey = FinalKey(gtid, partIndex, serialIterations);
+    DigitStruct digits;
+    const uint finalPartSize = e_numKeys - partIndex * PART_SIZE;
 #if defined(SHOULD_ASCEND)
-    ScatterPairsKeyPhaseAscendingPartialWLT16(gtid, finalKey, serialIterations, keys);
+    ScatterPairsKeyPhaseAscendingPartial(gtid, finalPartSize, digits);
 #else
-    ScatterPairsKeyPhaseDescendingPartialWLT16(gtid, finalKey, serialIterations, keys);
+    ScatterPairsKeyPhaseDescendingPartial(gtid, finalPartSize, digits);
 #endif
     GroupMemoryBarrierWithGroupSync();
-    LoadPayloadsPartialWLT16(gtid, finalKey, partIndex, serialIterations, offsets);
+    
+    KeyStruct payloads;
+    if (WaveGetLaneCount() >= 16)
+        LoadPayloadsPartialWGE16(gtid, partIndex, payloads);
+    else
+        LoadPayloadsPartialWLT16(gtid, partIndex, SerialIterations(), payloads);
+    ScatterPayloadsShared(offsets, payloads);
     GroupMemoryBarrierWithGroupSync();
-    ScatterPayloadsPartialWLT16(gtid, finalKey, serialIterations, keys);
-}
-
-inline void ScatterPairsDevicePartialWGE16(
-    uint gtid,
-    uint partIndex,
-    KeyStruct keys,
-    OffsetStruct offsets)
-{
-    const uint finalKey = FinalKey(gtid, partIndex, 1);
+    
 #if defined(SHOULD_ASCEND)
-    ScatterPairsKeyPhaseAscendingPartialWGE16(gtid, finalKey, keys);
+    ScatterPayloadsAscendingPartial(gtid, finalPartSize, digits);
 #else
-    ScatterPairsKeyPhaseDescendingPartialWGE16(gtid, finalKey, keys);
+    ScatterPayloadsDescendingPartial(gtid, finalPartSize, digits);
 #endif
-    GroupMemoryBarrierWithGroupSync();
-    LoadPayloadsPartialWGE16(gtid, finalKey, partIndex, offsets);
-    GroupMemoryBarrierWithGroupSync();
-    ScatterPayloadsPartialWGE16(gtid, finalKey, keys);
 }
 
-inline void ScatterDevicePartialWGE16(
+inline void ScatterDevicePartial(
     uint gtid,
     uint partIndex,
-    KeyStruct keys,
     OffsetStruct offsets)
 {
 #if defined(SORT_PAIRS)
-    ScatterPairsDevicePartialWGE16(
+    ScatterPairsDevicePartial(
         gtid,
         partIndex,
-        keys,
-        offsets);
-#else
-    ScatterKeysOnlyDevicePartial(gtid, partIndex);
-#endif
-}
-
-inline void ScatterDevicePartialWLT16(
-    uint gtid,
-    uint partIndex,
-    uint serialIterations,
-    KeyStruct keys,
-    OffsetStruct offsets)
-{
-#if defined(SORT_PAIRS)
-    ScatterPairsDevicePartialWLT16(
-        gtid,
-        partIndex,
-        serialIterations,
-        keys,
         offsets);
 #else
     ScatterKeysOnlyDevicePartial(gtid, partIndex);

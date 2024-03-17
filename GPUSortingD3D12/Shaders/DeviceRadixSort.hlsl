@@ -431,7 +431,6 @@ inline void LoadThreadBlockReductions(uint gtid, uint gid, uint exclusiveHistRed
 [numthreads(D_DIM, 1, 1)]
 void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
-    const uint serialIterations = SerialIterations();
     KeyStruct keys;
     OffsetStruct offsets;
     
@@ -443,7 +442,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             keys = LoadKeysWGE16(gtid.x, gid.x);
         
         if (WaveGetLaneCount() < 16)
-            keys = LoadKeysWLT16(gtid.x, gid.x, serialIterations);
+            keys = LoadKeysWLT16(gtid.x, gid.x, SerialIterations());
     }
         
     if (gid.x == e_threadBlocks - 1)
@@ -452,7 +451,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             keys = LoadKeysPartialWGE16(gtid.x, gid.x);
         
         if (WaveGetLaneCount() < 16)
-            keys = LoadKeysPartialWLT16(gtid.x, gid.x, serialIterations);
+            keys = LoadKeysPartialWLT16(gtid.x, gid.x, SerialIterations());
     }
     
     uint exclusiveHistReduction;
@@ -482,7 +481,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     
     if (WaveGetLaneCount() < 16)
     {
-        offsets = RankKeysWLT16(gtid.x, keys, serialIterations);
+        offsets = RankKeysWLT16(gtid.x, keys, SerialIterations());
             
         if (gtid.x < HALF_RADIX)
         {
@@ -493,7 +492,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         WaveHistReductionExclusiveScanWLT16(gtid.x);
         GroupMemoryBarrierWithGroupSync();
             
-        UpdateOffsetsWLT16(gtid.x, serialIterations, offsets, keys);
+        UpdateOffsetsWLT16(gtid.x, SerialIterations(), offsets, keys);
         if (gtid.x < RADIX) //take advantage of barrier to grab value
             exclusiveHistReduction = g_d[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
         GroupMemoryBarrierWithGroupSync();
@@ -504,20 +503,8 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     GroupMemoryBarrierWithGroupSync();
     
     if (gid.x < e_threadBlocks - 1)
-    {
-        if (WaveGetLaneCount() >= 16)
-            ScatterDeviceWGE16(gtid.x, gid.x, keys, offsets);
-        
-        if (WaveGetLaneCount() < 16)
-            ScatterDeviceWLT16(gtid.x, gid.x, serialIterations, keys, offsets);
-    }
+        ScatterPairsDevice(gtid.x, gid.x, offsets);
         
     if (gid.x == e_threadBlocks - 1)
-    {
-        if (WaveGetLaneCount() >= 16)
-            ScatterDevicePartialWGE16(gtid.x, gid.x, keys, offsets);
-        
-        if (WaveGetLaneCount() < 16)
-            ScatterDevicePartialWLT16(gtid.x, gid.x, serialIterations, keys, offsets);
-    }
+        ScatterDevicePartial(gtid.x, gid.x, offsets);
 }
