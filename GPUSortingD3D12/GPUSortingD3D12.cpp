@@ -28,6 +28,8 @@ DeviceInfo GetDeviceInfo(ID3D12Device* device)
     winrt::check_hresult(adapter->GetDesc1(&adapterDesc));
 
     devInfo.Description = adapterDesc.Description;
+    devInfo.deviceId = adapterDesc.DeviceId;
+    devInfo.vendorId = adapterDesc.VendorId;
 
     bool isWarpDevice = ((adapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == DXGI_ADAPTER_FLAG_SOFTWARE) ||
         (_wcsicmp(adapterDesc.Description, L"Microsoft Basic Render Driver") == 0);
@@ -110,15 +112,15 @@ int main()
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP, you will need NuGet package
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    DeviceRadixSort* dvr = new DeviceRadixSort(
+    /*DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
     dvr->TestAll();
-    dvr->BatchTiming(1 << 28, 25, 10, ENTROPY_PRESET_1);
-    dvr->~DeviceRadixSort();
+    dvr->BatchTiming(1 << 28, 500, 10, ENTROPY_PRESET_1);
+    dvr->~DeviceRadixSort();*/
 
     OneSweep* oneSweep = new OneSweep(
         device,
@@ -127,9 +129,9 @@ int main()
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
     oneSweep->TestAll();
-    oneSweep->BatchTiming(1 << 28, 25, 10, ENTROPY_PRESET_1);
+    //oneSweep->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
 
-    //SuperTestOneSweep(device, deviceInfo);            <- Test the complete functionality space,
-    //SuperTestDeviceRadixSort(device, deviceInfo);     <- these will take awhile!
+    /*SuperTestOneSweep(device, deviceInfo);          
+    SuperTestDeviceRadixSort(device, deviceInfo);*/
     return 0;
 }

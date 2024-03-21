@@ -20,10 +20,10 @@ class OneSweepDispatcher
 	const uint32_t k_maxSize;
 	const uint32_t k_radix = 256;
 	const uint32_t k_radixPasses = 4;
-	const uint32_t k_partitionSize = 7680;
+	const uint32_t k_partitionSize = 3840;
 	const uint32_t k_globalHistPartitionSize = 65536;
 	const uint32_t k_globalHistThreads = 128;
-	const uint32_t k_binningThreads = 512;			//2080 super seems to really like 512 
+	const uint32_t k_binningThreads = 256;			//2080 super seems to really like 512 
 	const uint32_t k_valPartSize = 4096;
 	
 	uint32_t* m_sort;

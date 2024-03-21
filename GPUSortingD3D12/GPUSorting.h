@@ -13,6 +13,8 @@ struct DeviceInfo
 {
     std::wstring Description;
     std::wstring SupportedShaderModel;
+    uint32_t deviceId;
+    uint32_t vendorId;
     uint32_t SIMDWidth;
     uint32_t SIMDLaneCount;
     uint32_t SIMDMaxWidth;
@@ -20,6 +22,15 @@ struct DeviceInfo
     bool Supports16BitTypes;
     bool SupportsDeviceRadixSort;
     bool SupportsOneSweep;
+};
+
+struct TuningParameters
+{
+    bool shouldLockWavesTo32;
+    uint32_t keysPerThread;
+    uint32_t threadsPerThreadblock;
+    uint32_t partitionSize;
+    uint32_t totalSharedMemory;
 };
 
 typedef 

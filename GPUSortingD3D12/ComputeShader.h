@@ -18,7 +18,7 @@ public:
         DeviceInfo const& info,
         std::filesystem::path const& shaderPath,
         const wchar_t* entryPoint,
-        std::vector<std::wstring> compileArguments,
+        std::vector<std::wstring>& compileArguments,
         std::vector<CD3DX12_ROOT_PARAMETER1> rootParameters)
     {
         auto byteCode = CompileShader(shaderPath, info, entryPoint,
@@ -47,21 +47,9 @@ private:
         std::filesystem::path const& shaderPath, 
         DeviceInfo const& info, 
         const wchar_t* entryPoint,
-        std::vector<std::wstring> arguments)
+        std::vector<std::wstring>& arguments)
     {
         std::vector<uint8_t> byteCode;
-
-        if (info.Supports16BitTypes)
-        {
-            arguments.push_back(L"-enable-16bit-types");
-            arguments.push_back(L"-DENABLE_16_BIT");
-        }
-
-        arguments.push_back(L"-O3");
-#ifdef _DEBUG
-        arguments.push_back(L"-Zi");
-#endif
-
         winrt::com_ptr<IDxcLibrary> library;
         winrt::check_hresult(DxcCreateInstance(
             CLSID_DxcLibrary, IID_PPV_ARGS(library.put())));

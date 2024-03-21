@@ -10,92 +10,54 @@
 #include "pch.h"
 #include "OneSweep.h"
 
+
 OneSweep::OneSweep(
-    winrt::com_ptr<ID3D12Device> _device, 
-    DeviceInfo _deviceInfo, 
+    winrt::com_ptr<ID3D12Device> _device,
+    DeviceInfo _deviceInfo,
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType) :
-    GPUSorter("OneSweep ", 4, 256, 3840, 1 << 13)
+    GPUSorter(
+        _device,
+        _deviceInfo,
+        sortingOrder,
+        keyType,
+        "OneSweep",
+        4,
+        256,
+        1 << 13)
 {
     //TODO: better exception handling
-    if (!_deviceInfo.SupportsOneSweep)
+    if (!m_devInfo.SupportsOneSweep)
         printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
-    
+
     m_device.copy_from(_device.get());
-    m_devInfo = _deviceInfo;
-    m_sortingConfig.sortingMode = GPU_SORTING_KEYS_ONLY;
-    m_sortingConfig.sortingOrder = sortingOrder;
-    m_sortingConfig.sortingKeyType = keyType;
-
-    switch (keyType)
-    {
-    case GPU_SORTING_KEY_UINT32:
-        m_compileArguments.push_back(L"-DKEY_UINT");
-        break;
-    case GPU_SORTING_KEY_INT32:
-        m_compileArguments.push_back(L"-DKEY_INT");
-        break;
-    case GPU_SORTING_KEY_FLOAT32:
-        m_compileArguments.push_back(L"-DKEY_FLOAT");
-        break;
-    }
-
-    if (sortingOrder == GPU_SORTING_ASCENDING)
-        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
-
+    SetCompileArguments();
     Initialize();
 }
 
 OneSweep::OneSweep(
-    winrt::com_ptr<ID3D12Device> _device, 
+    winrt::com_ptr<ID3D12Device> _device,
     DeviceInfo _deviceInfo,
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter("OneSweep ", 4, 256, 7680, 1 << 13)
+    GPUSorter(
+        _device,
+        _deviceInfo,
+        sortingOrder,
+        keyType,
+        payloadType,
+        "OneSweep",
+        4,
+        256,
+        1 << 13)
 {
     //TODO: better exception handling
-    if (!_deviceInfo.SupportsOneSweep)
+    if (!m_devInfo.SupportsOneSweep)
         printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
 
     m_device.copy_from(_device.get());
-    m_devInfo = _deviceInfo;
-    m_sortingConfig.sortingMode = GPU_SORTING_PAIRS;
-    m_sortingConfig.sortingOrder = sortingOrder;
-    m_sortingConfig.sortingKeyType = keyType;
-    m_sortingConfig.sortingPayloadType = payloadType;
-
-    m_compileArguments.push_back(L"-DSORT_PAIRS");
-
-    if (sortingOrder == GPU_SORTING_ASCENDING)
-        m_compileArguments.push_back(L"-DSHOULD_ASCEND");
-
-    switch (keyType)
-    {
-    case GPU_SORTING_KEY_UINT32:
-        m_compileArguments.push_back(L"-DKEY_UINT");
-        break;
-    case GPU_SORTING_KEY_INT32:
-        m_compileArguments.push_back(L"-DKEY_INT");
-        break;
-    case GPU_SORTING_KEY_FLOAT32:
-        m_compileArguments.push_back(L"-DKEY_FLOAT");
-        break;
-    }
-
-    switch (payloadType)
-    {
-    case GPU_SORTING_PAYLOAD_UINT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_UINT");
-        break;
-    case GPU_SORTING_PAYLOAD_INT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_INT");
-        break;
-    case GPU_SORTING_PAYLOAD_FLOAT32:
-        m_compileArguments.push_back(L"-DPAYLOAD_FLOAT");
-        break;
-    }
-
+    SetCompileArguments();
     Initialize();
 }
 
@@ -107,12 +69,12 @@ bool OneSweep::TestAll()
 {
     printf("Beginning ");
     printf(k_sortName);
-    PrintSortingConfig(m_sortingConfig);
+    PrintSortingConfig(k_sortingConfig);
     printf("test all. \n");
 
     uint32_t sortPayloadTestsPassed = 0;
-    const uint32_t testEnd = k_partitionSize * 2 + 1;
-    for (uint32_t i = k_partitionSize; i < testEnd; ++i)
+    const uint32_t testEnd = k_tuningParameters.partitionSize * 2 + 1;
+    for (uint32_t i = k_tuningParameters.partitionSize; i < testEnd; ++i)
     {
         sortPayloadTestsPassed += ValidateSort(i, i);
 
@@ -121,7 +83,7 @@ bool OneSweep::TestAll()
     }
 
     printf("\n");
-    printf("%u / %u passed. \n", sortPayloadTestsPassed, k_partitionSize + 1);
+    printf("%u / %u passed. \n", sortPayloadTestsPassed, k_tuningParameters.partitionSize + 1);
 
     printf("Beginning large size tests\n");
     sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
@@ -130,7 +92,7 @@ bool OneSweep::TestAll()
 
     sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
 
-    uint32_t totalTests = k_partitionSize + 1 + 3;
+    uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 3;
     if (sortPayloadTestsPassed == totalTests)
     {
         printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
@@ -161,7 +123,7 @@ void OneSweep::UpdateSize(uint32_t size)
     if (m_numKeys != size)
     {
         m_numKeys = size;
-        m_partitions = divRoundUp(m_numKeys, k_partitionSize);
+        m_partitions = divRoundUp(m_numKeys, k_tuningParameters.partitionSize);
         m_globalHistPartitions = divRoundUp(m_numKeys, k_globalHistPartitionSize);
         DisposeBuffers();
         InitBuffers(m_numKeys, m_partitions);
@@ -233,7 +195,7 @@ void OneSweep::InitBuffers(
         D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-    if (m_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+    if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
     {
         m_sortPayloadBuffer = CreateBuffer(
             m_device,

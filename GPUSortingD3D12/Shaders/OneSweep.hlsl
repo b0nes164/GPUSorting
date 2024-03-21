@@ -217,9 +217,9 @@ void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 inline void AssignPartitionTile(uint gtid, inout uint partitionIndex)
 {
     if (!gtid)
-        InterlockedAdd(b_index[CurrentPass()], 1, g_d[PART_SIZE - 1]);
+        InterlockedAdd(b_index[CurrentPass()], 1, g_d[D_TOTAL_SMEM - 1]);
     GroupMemoryBarrierWithGroupSync();
-    partitionIndex = g_d[PART_SIZE - 1];
+    partitionIndex = g_d[D_TOTAL_SMEM - 1];
 }
 
 inline void DeviceBroadcastReductionsWGE16(uint gtid, uint partIndex, uint histReduction)
@@ -272,6 +272,10 @@ inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
     }
 }
 
+//Lock RDNA to 32, we want WGP's not CU's
+#if defined(LOCK_TO_W32)
+[WaveSize(32)]
+#endif
 [numthreads(D_DIM, 1, 1)]
 void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
 {

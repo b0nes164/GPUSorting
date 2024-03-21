@@ -9,16 +9,35 @@
 //Compiler Defines
 //#define KEY_UINT KEY_INT KEY_FLOAT
 //#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
-//#define SHOULD_ASCEND
-//#define SORT_PAIRS
-//#define ENABLE_16_BIT
+//#define SHOULD_ASCEND             //Is the desired output ascending or descending?
+//#define SORT_PAIRS                //Are we sorting pairs?
+//#define ENABLE_16_BIT             //Use 16-bit values to save on memory when possible
+//#define LOCK_TO_W32               //Used to lock RDNA to 32, we want WGP's not CU's
 
-#if defined(SORT_PAIRS)
-#define PART_SIZE           7680U   //size of a partition tile
-#define D_DIM               512U    //The number of threads in a DigitBinningPass or DownSweep kernel
+#if defined(KEYS_PER_THREAD_7)
+#define KEYS_PER_THREAD     7U
 #else
-#define PART_SIZE           3840U
+#define KEYS_PER_THREAD     15U 
+#endif
+
+#if defined(D_DIM_256)
 #define D_DIM               256U
+#else
+#define D_DIM               512U
+#endif
+
+#if defined(PART_SIZE_3584)
+#define PART_SIZE           3584U
+#elif defined(PART_SIZE_3840)
+#define PART_SIZE           3840U
+#else
+#define PART_SIZE           7680U
+#endif
+
+#if defined(D_TOTAL_SMEM_4096)
+#define D_TOTAL_SMEM        4096U
+#else
+#define D_TOTAL_SMEM        7936U
 #endif
 
 #define RADIX               256U    //Number of digit bins
@@ -27,13 +46,6 @@
 #define HALF_MASK           127U    // '' 
 #define RADIX_LOG           8U      //log2(RADIX)
 #define RADIX_PASSES        4U      //(Key width) / RADIX_LOG
-
-#define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass or DownSweep kernel
-#if defined(SORT_PAIRS)
-#define MAX_D_SMEM          8192U   //shared memory for a DigitBinningPass or DownSweep kernel
-#else
-#define MAX_D_SMEM          4096U   //shared memory for a DigitBinningPass or DownSweep kernel
-#endif
 
 cbuffer cbParallelSort : register(b0)
 {
@@ -65,7 +77,7 @@ RWStructuredBuffer<float> b_sortPayload : register(u2);
 RWStructuredBuffer<float> b_altPayload  : register(u3);
 #endif
 
-groupshared uint g_d[MAX_D_SMEM];       //Shared memory for DigitBinningPass and DownSweep kernels
+groupshared uint g_d[D_TOTAL_SMEM]; //Shared memory for DigitBinningPass and DownSweep kernels
 
 struct KeyStruct
 {
@@ -196,7 +208,7 @@ inline uint WaveHistsSizeWGE16()
 
 inline uint WaveHistsSizeWLT16()
 {
-    return MAX_D_SMEM;
+    return D_TOTAL_SMEM;
 }
 
 //*****************************************************************************

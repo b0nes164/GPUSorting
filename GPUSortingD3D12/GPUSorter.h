@@ -10,6 +10,7 @@
 #include "pch.h"
 #include "Utils.h"
 #include "UtilityKernels.h"
+#include "Tuner.h"
 
 class GPUSorter
 {
@@ -17,8 +18,10 @@ protected:
     const char* k_sortName;
     const uint32_t k_radixPasses;
     const uint32_t k_radix;
-    const uint32_t k_partitionSize;
     const uint32_t k_maxReadBack;
+
+    const GPUSortingConfig k_sortingConfig{};
+    const TuningParameters k_tuningParameters{};
 
     uint32_t m_numKeys = 0;
     uint32_t m_partitions = 0;
@@ -26,7 +29,6 @@ protected:
     winrt::com_ptr<ID3D12Device> m_device;
     DeviceInfo m_devInfo{};
     std::vector<std::wstring> m_compileArguments;
-    GPUSortingConfig m_sortingConfig{};
 
     winrt::com_ptr<ID3D12GraphicsCommandList> m_cmdList;
     winrt::com_ptr<ID3D12CommandQueue> m_cmdQueue;
@@ -50,17 +52,42 @@ protected:
     Validate* m_validate;
 
     GPUSorter(
+        winrt::com_ptr<ID3D12Device> _device,
+        DeviceInfo _deviceInfo,
+        GPU_SORTING_ORDER sortingOrder,
+        GPU_SORTING_KEY_TYPE keyType,
         const char* sortName,
         uint32_t radixPasses,
         uint32_t radix,
-        uint32_t partitionSize,
         uint32_t maxReadBack) :
         k_sortName(sortName),
         k_radixPasses(radixPasses),
         k_radix(radix),
-        k_partitionSize(partitionSize),
-        k_maxReadBack(maxReadBack)
+        k_maxReadBack(maxReadBack),
+        m_devInfo(_deviceInfo),
+        k_sortingConfig({ GPU_SORTING_KEYS_ONLY, sortingOrder, keyType, GPU_SORTING_PAYLOAD_UINT32}),
+        k_tuningParameters(Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_KEYS_ONLY))
     {
+    };
+
+    GPUSorter(
+        winrt::com_ptr<ID3D12Device> _device,
+        DeviceInfo _deviceInfo,
+        GPU_SORTING_ORDER sortingOrder,
+        GPU_SORTING_KEY_TYPE keyType,
+        GPU_SORTING_PAYLOAD_TYPE payloadType,
+        const char* sortName,
+        uint32_t radixPasses,
+        uint32_t radix,
+        uint32_t maxReadBack) :
+        k_sortName(sortName),
+        k_radixPasses(radixPasses),
+        k_radix(radix),
+        k_maxReadBack(maxReadBack),
+        m_devInfo(_deviceInfo),
+        k_sortingConfig({ GPU_SORTING_PAIRS, sortingOrder, keyType, payloadType }),
+        k_tuningParameters(Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_PAIRS))
+    { 
     };
 
     ~GPUSorter()
@@ -95,7 +122,7 @@ public:
             for (uint32_t i = 0; i < vecOut.size(); ++i)
                 printf("%u %u \n", i, vecOut[i]);
 
-            if (m_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+            if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
             {
                 ReadbackPreBarrier(m_cmdList, m_sortPayloadBuffer);
                 m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, (uint32_t)readBackSize * sizeof(uint32_t));
@@ -118,7 +145,7 @@ public:
         const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
         printf("Beginning ");
         printf(k_sortName);
-        PrintSortingConfig(m_sortingConfig);
+        PrintSortingConfig(k_sortingConfig);
         printf("batch timing test at:\n");
         printf("Size: %u\n", inputSize);
         printf("Entropy: %f bits\n", entLookup[entropyPreset]);
@@ -142,6 +169,111 @@ public:
     virtual bool TestAll() = 0;
 
 protected:
+    void SetCompileArguments()
+    {
+        if (k_tuningParameters.shouldLockWavesTo32)
+            m_compileArguments.push_back(L"-DLOCK_TO_W32");
+
+        switch (k_tuningParameters.keysPerThread)
+        {
+        case 7:
+            m_compileArguments.push_back(L"-DKEYS_PER_THREAD_7");
+            break;
+        case 15:
+            break;
+        default:
+#ifdef _DEBUG
+            printf("KeysPerThread define missing!");
+#endif
+        }
+
+        switch (k_tuningParameters.threadsPerThreadblock)
+        {
+        case 256:
+            m_compileArguments.push_back(L"-DD_DIM_256");
+            break;
+        case 512:
+            break;
+        default:
+#ifdef _DEBUG
+            printf("ThreadsPerThread define missing!");
+#endif
+        }
+
+        switch (k_tuningParameters.partitionSize)
+        {
+        case 3584:
+            m_compileArguments.push_back(L"-DPART_SIZE_3584");
+            break;
+        case 3840:
+            m_compileArguments.push_back(L"-DPART_SIZE_3840");
+            break;
+        case 7680:
+            break;
+        default:
+#ifdef _DEBUG
+            printf("PartitionSize define missing!");
+#endif
+        }
+
+        switch (k_tuningParameters.totalSharedMemory)
+        {
+        case 4096:
+            m_compileArguments.push_back(L"-DD_TOTAL_SMEM_4096");
+            break;
+        case 7936:
+            break;
+        default:
+#ifdef _DEBUG
+            printf("TotalSharedMemoryDefine define missing!");
+#endif
+        }
+
+        if (k_sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)
+            m_compileArguments.push_back(L"-DSHOULD_ASCEND");
+
+        switch (k_sortingConfig.sortingKeyType)
+        {
+        case GPU_SORTING_KEY_UINT32:
+            m_compileArguments.push_back(L"-DKEY_UINT");
+            break;
+        case GPU_SORTING_KEY_INT32:
+            m_compileArguments.push_back(L"-DKEY_INT");
+            break;
+        case GPU_SORTING_KEY_FLOAT32:
+            m_compileArguments.push_back(L"-DKEY_FLOAT");
+            break;
+        }
+
+        if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+        {
+            m_compileArguments.push_back(L"-DSORT_PAIRS");
+            switch (k_sortingConfig.sortingPayloadType)
+            {
+            case GPU_SORTING_PAYLOAD_UINT32:
+                m_compileArguments.push_back(L"-DPAYLOAD_UINT");
+                break;
+            case GPU_SORTING_PAYLOAD_INT32:
+                m_compileArguments.push_back(L"-DPAYLOAD_INT");
+                break;
+            case GPU_SORTING_PAYLOAD_FLOAT32:
+                m_compileArguments.push_back(L"-DPAYLOAD_FLOAT");
+                break;
+            }
+        }
+        
+        if (m_devInfo.Supports16BitTypes)
+        {
+            m_compileArguments.push_back(L"-enable-16bit-types");
+            m_compileArguments.push_back(L"-DENABLE_16_BIT");
+        }
+
+        m_compileArguments.push_back(L"-O3");
+#ifdef _DEBUG
+        m_compileArguments.push_back(L"-Zi");
+#endif
+    }
+
     void Initialize()
     {
         InitComputeShaders();
@@ -245,7 +377,7 @@ protected:
         if (shouldPrint)
         {
             printf(k_sortName);
-            PrintSortingConfig(m_sortingConfig);
+            PrintSortingConfig(k_sortingConfig);
             if (errCount)
                 printf("failed at size %u with %u errors. \n", m_numKeys, errCount);
             else
@@ -283,5 +415,43 @@ protected:
     static inline uint32_t divRoundUp(uint32_t x, uint32_t y)
     {
         return (x + y - 1) / y;
+    }
+
+    static void PrintSortingConfig(const GPUSortingConfig& sortingConfig)
+    {
+
+        switch (sortingConfig.sortingKeyType)
+        {
+        case GPU_SORTING_KEY_UINT32:
+            printf("keys uint32 ");
+            break;
+        case GPU_SORTING_KEY_INT32:
+            printf("keys int32 ");
+            break;
+        case GPU_SORTING_KEY_FLOAT32:
+            printf("keys float32 ");
+            break;
+        }
+
+        if (sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+        {
+            switch (sortingConfig.sortingPayloadType)
+            {
+            case GPU_SORTING_PAYLOAD_UINT32:
+                printf("payload uint32 ");
+                break;
+            case GPU_SORTING_PAYLOAD_INT32:
+                printf("payload int32 ");
+                break;
+            case GPU_SORTING_PAYLOAD_FLOAT32:
+                printf("payload float32 ");
+                break;
+            }
+        }
+
+        if (sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)
+            printf("ascending ");
+        else
+            printf("descending ");
     }
 };
