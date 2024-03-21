@@ -112,15 +112,15 @@ int main()
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP, you will need NuGet package
     DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    /*DeviceRadixSort* dvr = new DeviceRadixSort(
+    DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
         GPU_SORTING_ASCENDING,
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
     dvr->TestAll();
-    dvr->BatchTiming(1 << 28, 500, 10, ENTROPY_PRESET_1);
-    dvr->~DeviceRadixSort();*/
+    dvr->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
+    dvr->~DeviceRadixSort();
 
     OneSweep* oneSweep = new OneSweep(
         device,
@@ -129,9 +129,10 @@ int main()
         GPU_SORTING_KEY_UINT32,
         GPU_SORTING_PAYLOAD_UINT32);
     oneSweep->TestAll();
-    //oneSweep->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
+    oneSweep->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
 
-    /*SuperTestOneSweep(device, deviceInfo);          
-    SuperTestDeviceRadixSort(device, deviceInfo);*/
+    //SuperTestOneSweep(device, deviceInfo);            <-Test the complete feature space,
+    //SuperTestDeviceRadixSort(device, deviceInfo);     <-this will take a while!
+
     return 0;
 }

@@ -20,14 +20,14 @@ DeviceRadixSort::DeviceRadixSort(
         _deviceInfo,
         sortingOrder,
         keyType,
-        "OneSweep",
+        "DeviceRadixSort ",
         4,
         256,
         1 << 13)
 {
-    //TODO: better exception handling
-    if (!m_devInfo.SupportsOneSweep)
-        printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
+    m_device.copy_from(_device.get());
+    SetCompileArguments();
+    Initialize();
 }
 
 DeviceRadixSort::DeviceRadixSort(
@@ -42,14 +42,14 @@ DeviceRadixSort::DeviceRadixSort(
         sortingOrder,
         keyType,
         payloadType,
-        "OneSweep",
+        "DeviceRadixSort ",
         4,
         256,
         1 << 13)
 {
-    //TODO: better exception handling
-    if (!m_devInfo.SupportsOneSweep)
-        printf("Warning this device does not support OneSweep, correct execution is not guarunteed");
+    m_device.copy_from(_device.get());
+    SetCompileArguments();
+    Initialize();
 }
 
 DeviceRadixSort::~DeviceRadixSort()

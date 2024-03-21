@@ -14,7 +14,9 @@
 //#define ENABLE_16_BIT             //Use 16-bit values to save on memory when possible
 //#define LOCK_TO_W32               //Used to lock RDNA to 32, we want WGP's not CU's
 
-#if defined(KEYS_PER_THREAD_7)
+#if defined(KEYS_PER_THREAD_5)
+#define KEYS_PER_THREAD     5U
+#elif defined(KEYS_PER_THREAD_7)
 #define KEYS_PER_THREAD     7U
 #else
 #define KEYS_PER_THREAD     15U 
@@ -26,7 +28,9 @@
 #define D_DIM               512U
 #endif
 
-#if defined(PART_SIZE_3584)
+#if defined(PART_SIZE_2560)
+#define PART_SIZE           2560U
+#elif defined(PART_SIZE_3584)
 #define PART_SIZE           3584U
 #elif defined(PART_SIZE_3840)
 #define PART_SIZE           3840U

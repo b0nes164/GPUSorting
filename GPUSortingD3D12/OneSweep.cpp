@@ -21,7 +21,7 @@ OneSweep::OneSweep(
         _deviceInfo,
         sortingOrder,
         keyType,
-        "OneSweep",
+        "OneSweep ",
         4,
         256,
         1 << 13)
@@ -47,7 +47,7 @@ OneSweep::OneSweep(
         sortingOrder,
         keyType,
         payloadType,
-        "OneSweep",
+        "OneSweep ",
         4,
         256,
         1 << 13)

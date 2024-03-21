@@ -283,11 +283,19 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     KeyStruct keys;
     OffsetStruct offsets;
     
-    //WGT 16 does not require additional barriers
+    //WGT 16 can potentially skip some barriers
     if (WaveGetLaneCount() > 16)
     {
-        ClearWaveHists(gtid.x);
+        if(WaveHistsSizeWGE16() < PART_SIZE)
+            ClearWaveHists(gtid.x);
+
         AssignPartitionTile(gtid.x, partitionIndex);
+        if(WaveHistsSizeWGE16() >= PART_SIZE)
+        {
+            GroupMemoryBarrierWithGroupSync();
+            ClearWaveHists(gtid.x);
+            GroupMemoryBarrierWithGroupSync();
+        }
     }
     
     if (WaveGetLaneCount() <= 16)

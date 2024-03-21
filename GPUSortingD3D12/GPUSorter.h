@@ -176,6 +176,8 @@ protected:
 
         switch (k_tuningParameters.keysPerThread)
         {
+        case 5:
+            m_compileArguments.push_back(L"-DKEYS_PER_THREAD_5");
         case 7:
             m_compileArguments.push_back(L"-DKEYS_PER_THREAD_7");
             break;
@@ -185,6 +187,7 @@ protected:
 #ifdef _DEBUG
             printf("KeysPerThread define missing!");
 #endif
+            break;
         }
 
         switch (k_tuningParameters.threadsPerThreadblock)
@@ -198,10 +201,14 @@ protected:
 #ifdef _DEBUG
             printf("ThreadsPerThread define missing!");
 #endif
+            break;
         }
 
         switch (k_tuningParameters.partitionSize)
         {
+        case 2560:
+            m_compileArguments.push_back(L"-DPART_SIZE_2560");
+            break;
         case 3584:
             m_compileArguments.push_back(L"-DPART_SIZE_3584");
             break;
@@ -214,6 +221,7 @@ protected:
 #ifdef _DEBUG
             printf("PartitionSize define missing!");
 #endif
+            break;
         }
 
         switch (k_tuningParameters.totalSharedMemory)
@@ -227,6 +235,7 @@ protected:
 #ifdef _DEBUG
             printf("TotalSharedMemoryDefine define missing!");
 #endif
+            break;
         }
 
         if (k_sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)

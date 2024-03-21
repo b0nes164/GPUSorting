@@ -721,15 +721,15 @@ namespace Tuner::TunerHelper
 			break;
 		case 49152:
 			keysPerThread = 15;
-			threadsPerThreadBlock = 256; //3840
+			threadsPerThreadBlock = 512; //7680
 			break;
 		case 65536:
 			keysPerThread = 15;
-			threadsPerThreadBlock = 256; //3840
+			threadsPerThreadBlock = 512; //7680
 			break;
 		case 131072:
 			keysPerThread = 15;
-			threadsPerThreadBlock = 256; //3840
+			threadsPerThreadBlock = 512; //7680
 			break;
 		default:
 			return GetGenericTuningParameters();
@@ -759,8 +759,8 @@ namespace Tuner::TunerHelper
 		//We lock the wave size to 32 because we want want WGPs not CUs
 		const bool shouldLockToW32 = true;
 		const uint32_t lanesPerWave = 32;
-		const uint32_t keysPerThread = 15;
-		const uint32_t threadsPerThreadBlock = 512;
+		const uint32_t keysPerThread = 7;
+		const uint32_t threadsPerThreadBlock = 512;	//3584
 		const uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
 		const uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWave * 256;
 		const uint32_t combinedPartSize = partitionSize + 256;
@@ -782,8 +782,8 @@ namespace Tuner::TunerHelper
 		//We lock the wave size to 32 because we want want WGPs not CUs
 		const bool shouldLockToW32 = true;
 		const uint32_t lanesPerWave = 32;
-		const uint32_t keysPerThread = 7;
-		const uint32_t threadsPerThreadBlock = 512;
+		const uint32_t keysPerThread = 5;
+		const uint32_t threadsPerThreadBlock = 512; //2560
 		const uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
 		const uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWave * 256;
 		const uint32_t combinedPartSize = partitionSize + 256;
@@ -886,42 +886,3 @@ namespace Tuner
 		return tuningParams;
 	}
 }
-
-//Example: how we tune RDNA
-/*
-const static uint32_t k_radix = 256;
-const static uint32_t k_keysRegisterUsageConstant = 32;
-const static uint32_t k_pairsRegisterUsageConstant = 33;
-const static uint32_t k_keysRegisterCoefficient = 2;
-const static uint32_t k_pairsRegisterCoefficient = 4;
-
-const static uint32_t k_simd32PerWGP = 4;
-const static uint32_t k_threadsPerSIMD32 = 32;
-const static uint32_t k_vgprPerSIMD32 = 131072;		//In BYTES
-const static uint32_t k_ldsPerWGP = 131072;			//In BYTES
-const static uint32_t k_maxWavesPerSIMD32 = 16;
-
-//In this scenario we are always LDS bound,
-static inline TuningParameters calcKeysTuningParametersRDNA()
-{
-	constexpr uint32_t keysPerThread =
-		(((k_ldsPerWGP / sizeof(uint32_t) - k_simd32PerWGP * k_radix) / (k_threadsPerSIMD32 * k_maxWavesPerSIMD32)) -
-			k_keysRegisterUsageConstant) / k_keysRegisterCoefficient;
-
-	//If any of these parameters varied, a check would be required here
-	//to ensure that the LDS usage does not exceed HLSL's max of 32kb per threadblock
-	return keysPerThread;
-}
-
-//In this scenario we are always VGPR bound
-static inline uint32_t calcPairsTuningParametersRDNA()
-{
-	constexpr uint32_t keysPerThread =
-		((k_vgprPerSIMD32 / sizeof(uint32_t) / (k_threadsPerSIMD32 * k_maxWavesPerSIMD32)) -
-			k_pairsRegisterUsageConstant) / k_pairsRegisterCoefficient;
-
-	//If any of these parameters varied, a check would be required here
-	//to ensure that the LDS usage does not exceed HLSL's max of 32kb per threadblock
-	return keysPerThread;
-}
-*/
