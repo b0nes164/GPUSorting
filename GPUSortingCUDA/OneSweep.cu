@@ -27,10 +27,10 @@
 #define G_HIST_VEC_SIZE		16384
 
 //For the digit binning
-#define BIN_PART_SIZE       3840                                    //Partition tile size in k_DigitBinning
-#define BIN_HISTS_SIZE      2048                                    //Total size of warp histograms in shared memory in k_DigitBinning
+#define BIN_PART_SIZE       7680                                    //Partition tile size in k_DigitBinning
+#define BIN_HISTS_SIZE      4096                                    //Total size of warp histograms in shared memory in k_DigitBinning
 #define BIN_SUB_PART_SIZE   480                                     //Subpartition tile size of a single warp in k_DigitBinning
-#define BIN_WARPS           8                                       //Warps per threadblock in k_DigitBinning
+#define BIN_WARPS           16                                      //Warps per threadblock in k_DigitBinning
 #define BIN_KEYS_PER_THREAD 15                                      //Keys per thread in k_DigitBinning
 #define BIN_SUB_PART_START  (WARP_INDEX * BIN_SUB_PART_SIZE)        //Starting offset of a subpartition tile
 #define BIN_PART_START      (partitionIndex * BIN_PART_SIZE)        //Starting offset of a partition tile

@@ -37,369 +37,369 @@
 #define FLAG_MASK           3                                       //Mask used to retrieve flag values
 
 __global__ void DeviceRadixSort::Upsweep(
-	uint32_t* sort,
-	uint32_t* globalHist,
-	uint32_t* passHist,
-	uint32_t size,
-	uint32_t radixShift)
+    uint32_t* sort,
+    uint32_t* globalHist,
+    uint32_t* passHist,
+    uint32_t size,
+    uint32_t radixShift)
 {
-	__shared__ uint32_t s_globalHist[RADIX * 2];
+    __shared__ uint32_t s_globalHist[RADIX * 2];
 
-	//clear shared memory
-	for (uint32_t i = threadIdx.x; i < RADIX * 2; i += blockDim.x)
-		s_globalHist[i] = 0;
-	__syncthreads();
-	
-	//histogram
-	{
-		//64 threads : 1 histogram in shared memory
-		uint32_t* s_wavesHist = &s_globalHist[threadIdx.x / 64 * RADIX];
+    //clear shared memory
+    for (uint32_t i = threadIdx.x; i < RADIX * 2; i += blockDim.x)
+        s_globalHist[i] = 0;
+    __syncthreads();
+    
+    //histogram
+    {
+        //64 threads : 1 histogram in shared memory
+        uint32_t* s_wavesHist = &s_globalHist[threadIdx.x / 64 * RADIX];
 
-		if (blockIdx.x < gridDim.x - 1)
-		{
-			const uint32_t partEnd = (blockIdx.x + 1) * VEC_PART_SIZE;
-			for (uint32_t i = threadIdx.x + (blockIdx.x * VEC_PART_SIZE); i < partEnd; i += blockDim.x)
-			{
-				const uint4 t = reinterpret_cast<uint4*>(sort)[i];
-				atomicAdd(&s_wavesHist[t.x >> radixShift & RADIX_MASK], 1);
-				atomicAdd(&s_wavesHist[t.y >> radixShift & RADIX_MASK], 1);
-				atomicAdd(&s_wavesHist[t.z >> radixShift & RADIX_MASK], 1);
-				atomicAdd(&s_wavesHist[t.w >> radixShift & RADIX_MASK], 1);
-			}
-		}
+        if (blockIdx.x < gridDim.x - 1)
+        {
+            const uint32_t partEnd = (blockIdx.x + 1) * VEC_PART_SIZE;
+            for (uint32_t i = threadIdx.x + (blockIdx.x * VEC_PART_SIZE); i < partEnd; i += blockDim.x)
+            {
+                const uint4 t = reinterpret_cast<uint4*>(sort)[i];
+                atomicAdd(&s_wavesHist[t.x >> radixShift & RADIX_MASK], 1);
+                atomicAdd(&s_wavesHist[t.y >> radixShift & RADIX_MASK], 1);
+                atomicAdd(&s_wavesHist[t.z >> radixShift & RADIX_MASK], 1);
+                atomicAdd(&s_wavesHist[t.w >> radixShift & RADIX_MASK], 1);
+            }
+        }
 
-		if (blockIdx.x == gridDim.x - 1)
-		{
-			for (uint32_t i = threadIdx.x + (blockIdx.x * PART_SIZE); i < size; i += blockDim.x)
-			{
-				const uint32_t t = sort[i];
-				atomicAdd(&s_wavesHist[t >> radixShift & RADIX_MASK], 1);
-			}
-		}
-	}
-	__syncthreads();
+        if (blockIdx.x == gridDim.x - 1)
+        {
+            for (uint32_t i = threadIdx.x + (blockIdx.x * PART_SIZE); i < size; i += blockDim.x)
+            {
+                const uint32_t t = sort[i];
+                atomicAdd(&s_wavesHist[t >> radixShift & RADIX_MASK], 1);
+            }
+        }
+    }
+    __syncthreads();
 
-	//reduce to the first hist, pass out, begin prefix sum
-	for (uint32_t i = threadIdx.x; i < RADIX; i += blockDim.x)
-	{
-		s_globalHist[i] += s_globalHist[i + RADIX];
-		passHist[i * gridDim.x + blockIdx.x] = s_globalHist[i];
-		s_globalHist[i] = InclusiveWarpScanCircularShift(s_globalHist[i]);
-	}	
-	__syncthreads();
+    //reduce to the first hist, pass out, begin prefix sum
+    for (uint32_t i = threadIdx.x; i < RADIX; i += blockDim.x)
+    {
+        s_globalHist[i] += s_globalHist[i + RADIX];
+        passHist[i * gridDim.x + blockIdx.x] = s_globalHist[i];
+        s_globalHist[i] = InclusiveWarpScanCircularShift(s_globalHist[i]);
+    }	
+    __syncthreads();
 
-	if (threadIdx.x < (RADIX >> LANE_LOG))
-		s_globalHist[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_globalHist[threadIdx.x << LANE_LOG]);
-	__syncthreads();
-	
-	//Atomically add to device memory
-	for (uint32_t i = threadIdx.x; i < RADIX; i += blockDim.x)
-		atomicAdd(&globalHist[i + (radixShift << 5)], s_globalHist[i] + (getLaneId() ? __shfl_sync(0xfffffffe, s_globalHist[i - 1], 1) : 0));
+    if (threadIdx.x < (RADIX >> LANE_LOG))
+        s_globalHist[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_globalHist[threadIdx.x << LANE_LOG]);
+    __syncthreads();
+    
+    //Atomically add to device memory
+    for (uint32_t i = threadIdx.x; i < RADIX; i += blockDim.x)
+        atomicAdd(&globalHist[i + (radixShift << 5)], s_globalHist[i] + (getLaneId() ? __shfl_sync(0xfffffffe, s_globalHist[i - 1], 1) : 0));
 }
 
 __global__ void DeviceRadixSort::Scan(
-	uint32_t* passHist,
-	uint32_t threadBlocks)
+    uint32_t* passHist,
+    uint32_t threadBlocks)
 {
-	__shared__ uint32_t s_scan[128];
+    __shared__ uint32_t s_scan[128];
 
-	uint32_t reduction = 0;
-	const uint32_t circularLaneShift = getLaneId() + 1 & LANE_MASK;
-	const uint32_t partitionsEnd = threadBlocks / blockDim.x * blockDim.x;
-	const uint32_t digitOffset = blockIdx.x * threadBlocks;
+    uint32_t reduction = 0;
+    const uint32_t circularLaneShift = getLaneId() + 1 & LANE_MASK;
+    const uint32_t partitionsEnd = threadBlocks / blockDim.x * blockDim.x;
+    const uint32_t digitOffset = blockIdx.x * threadBlocks;
 
-	uint32_t i = threadIdx.x;
-	for (; i < partitionsEnd; i += blockDim.x)
-	{
-		s_scan[threadIdx.x] = passHist[i + digitOffset];
-		s_scan[threadIdx.x] = InclusiveWarpScan(s_scan[threadIdx.x]);
-		__syncthreads();
+    uint32_t i = threadIdx.x;
+    for (; i < partitionsEnd; i += blockDim.x)
+    {
+        s_scan[threadIdx.x] = passHist[i + digitOffset];
+        s_scan[threadIdx.x] = InclusiveWarpScan(s_scan[threadIdx.x]);
+        __syncthreads();
 
-		if (threadIdx.x < (blockDim.x >> LANE_LOG))
-		{
-			s_scan[(threadIdx.x + 1 << LANE_LOG) - 1] = 
-				ActiveInclusiveWarpScan(s_scan[(threadIdx.x + 1 << LANE_LOG) - 1]);
-		}
-		__syncthreads();
+        if (threadIdx.x < (blockDim.x >> LANE_LOG))
+        {
+            s_scan[(threadIdx.x + 1 << LANE_LOG) - 1] = 
+                ActiveInclusiveWarpScan(s_scan[(threadIdx.x + 1 << LANE_LOG) - 1]);
+        }
+        __syncthreads();
 
-		passHist[circularLaneShift + (i & ~LANE_MASK) + digitOffset] =
-			(getLaneId() != LANE_MASK ? s_scan[threadIdx.x] : 0) +
-			(threadIdx.x >= LANE_COUNT ? __shfl_sync(0xffffffff, s_scan[threadIdx.x - 1], 0) : 0) +
-			reduction;
+        passHist[circularLaneShift + (i & ~LANE_MASK) + digitOffset] =
+            (getLaneId() != LANE_MASK ? s_scan[threadIdx.x] : 0) +
+            (threadIdx.x >= LANE_COUNT ? __shfl_sync(0xffffffff, s_scan[threadIdx.x - 1], 0) : 0) +
+            reduction;
 
-		reduction += s_scan[blockDim.x - 1];
-		__syncthreads();
-	}
+        reduction += s_scan[blockDim.x - 1];
+        __syncthreads();
+    }
 
-	if(i < threadBlocks)
-		s_scan[threadIdx.x] = passHist[i + digitOffset];
-	s_scan[threadIdx.x] = InclusiveWarpScan(s_scan[threadIdx.x]);
-	__syncthreads();
+    if(i < threadBlocks)
+        s_scan[threadIdx.x] = passHist[i + digitOffset];
+    s_scan[threadIdx.x] = InclusiveWarpScan(s_scan[threadIdx.x]);
+    __syncthreads();
 
-	if (threadIdx.x < (blockDim.x >> LANE_LOG))
-	{
-		s_scan[(threadIdx.x + 1 << LANE_LOG) - 1] =
-			ActiveInclusiveWarpScan(s_scan[(threadIdx.x + 1 << LANE_LOG) - 1]);
-	}
-	__syncthreads();
+    if (threadIdx.x < (blockDim.x >> LANE_LOG))
+    {
+        s_scan[(threadIdx.x + 1 << LANE_LOG) - 1] =
+            ActiveInclusiveWarpScan(s_scan[(threadIdx.x + 1 << LANE_LOG) - 1]);
+    }
+    __syncthreads();
 
-	const uint32_t index = circularLaneShift + (i & ~LANE_MASK);
-	if (index < threadBlocks)
-	{
-		passHist[index + digitOffset] =
-			(getLaneId() != LANE_MASK ? s_scan[threadIdx.x] : 0) +
-			(threadIdx.x >= LANE_COUNT ?
-			s_scan[(threadIdx.x & ~LANE_MASK) - 1] : 0) +
-			reduction;
-	}
+    const uint32_t index = circularLaneShift + (i & ~LANE_MASK);
+    if (index < threadBlocks)
+    {
+        passHist[index + digitOffset] =
+            (getLaneId() != LANE_MASK ? s_scan[threadIdx.x] : 0) +
+            (threadIdx.x >= LANE_COUNT ?
+            s_scan[(threadIdx.x & ~LANE_MASK) - 1] : 0) +
+            reduction;
+    }
 }
 
 __global__ void DeviceRadixSort::DownsweepKeysOnly(
-	uint32_t* sort, 
-	uint32_t* alt, 
-	uint32_t* globalHist,
-	uint32_t* passHist,
-	uint32_t size, 
-	uint32_t radixShift)
+    uint32_t* sort, 
+    uint32_t* alt, 
+    uint32_t* globalHist,
+    uint32_t* passHist,
+    uint32_t size, 
+    uint32_t radixShift)
 {
-	__shared__ uint32_t s_warpHistograms[BIN_PART_SIZE];
-	__shared__ uint32_t s_localHistogram[RADIX];
-	volatile uint32_t* s_warpHist = &s_warpHistograms[WARP_INDEX << RADIX_LOG];
+    __shared__ uint32_t s_warpHistograms[BIN_PART_SIZE];
+    __shared__ uint32_t s_localHistogram[RADIX];
+    volatile uint32_t* s_warpHist = &s_warpHistograms[WARP_INDEX << RADIX_LOG];
 
-	//clear shared memory
-	for (uint32_t i = threadIdx.x; i < BIN_HISTS_SIZE; i += blockDim.x)
-		s_warpHistograms[i] = 0;
+    //clear shared memory
+    for (uint32_t i = threadIdx.x; i < BIN_HISTS_SIZE; i += blockDim.x)
+        s_warpHistograms[i] = 0;
 
-	//load keys
-	uint32_t keys[BIN_KEYS_PER_THREAD];
-	if (blockIdx.x < gridDim.x - 1)
-	{
-		#pragma unroll
-		for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
-			keys[i] = sort[t];
-	}
+    //load keys
+    uint32_t keys[BIN_KEYS_PER_THREAD];
+    if (blockIdx.x < gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
+            keys[i] = sort[t];
+    }
 
-	//To handle input sizes not perfect multiples of the partition tile size,
-	//load "dummy" keys, which are keys with the highest possible digit.
-	//Because of the stability of the sort, these keys are guaranteed to be 
-	//last when scattered. This allows for effortless divergence free sorting
-	//of the final partition.
-	if (blockIdx.x == gridDim.x - 1)
-	{
-		#pragma unroll
-		for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
-			keys[i] = t < size ? sort[t] : 0xffffffff;
-	}
-	__syncthreads();
+    //To handle input sizes not perfect multiples of the partition tile size,
+    //load "dummy" keys, which are keys with the highest possible digit.
+    //Because of the stability of the sort, these keys are guaranteed to be 
+    //last when scattered. This allows for effortless divergence free sorting
+    //of the final partition.
+    if (blockIdx.x == gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
+            keys[i] = t < size ? sort[t] : 0xffffffff;
+    }
+    __syncthreads();
 
-	//WLMS
-	uint16_t offsets[BIN_KEYS_PER_THREAD];
-	#pragma unroll
-	for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-	{
-		unsigned warpFlags = 0xffffffff;
-		#pragma unroll
-		for (int k = 0; k < RADIX_LOG; ++k)
-		{
-			const bool t2 = keys[i] >> k + radixShift & 1;
-			warpFlags &= (t2 ? 0 : 0xffffffff) ^ __ballot_sync(0xffffffff, t2);
-		}
-		const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
-		uint32_t preIncrementVal;
-		if (bits == 0)
-			preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & RADIX_MASK], __popc(warpFlags));
+    //WLMS
+    uint16_t offsets[BIN_KEYS_PER_THREAD];
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+    {
+        unsigned warpFlags = 0xffffffff;
+        #pragma unroll
+        for (int k = 0; k < RADIX_LOG; ++k)
+        {
+            const bool t2 = keys[i] >> k + radixShift & 1;
+            warpFlags &= (t2 ? 0 : 0xffffffff) ^ __ballot_sync(0xffffffff, t2);
+        }
+        const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
+        uint32_t preIncrementVal;
+        if (bits == 0)
+            preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & RADIX_MASK], __popc(warpFlags));
 
-		offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(warpFlags) - 1) + bits;
-	}
-	__syncthreads();
+        offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(warpFlags) - 1) + bits;
+    }
+    __syncthreads();
 
-	//exclusive prefix sum up the warp histograms
-	if (threadIdx.x < RADIX)
-	{
-		uint32_t reduction = s_warpHistograms[threadIdx.x];
-		for (uint32_t i = threadIdx.x + RADIX; i < BIN_HISTS_SIZE; i += RADIX)
-		{
-			reduction += s_warpHistograms[i];
-			s_warpHistograms[i] = reduction - s_warpHistograms[i];
-		}
+    //exclusive prefix sum up the warp histograms
+    if (threadIdx.x < RADIX)
+    {
+        uint32_t reduction = s_warpHistograms[threadIdx.x];
+        for (uint32_t i = threadIdx.x + RADIX; i < BIN_HISTS_SIZE; i += RADIX)
+        {
+            reduction += s_warpHistograms[i];
+            s_warpHistograms[i] = reduction - s_warpHistograms[i];
+        }
 
-		//begin the exclusive prefix sum across the reductions
-		s_warpHistograms[threadIdx.x] = InclusiveWarpScanCircularShift(reduction);
-	}
-	__syncthreads();
+        //begin the exclusive prefix sum across the reductions
+        s_warpHistograms[threadIdx.x] = InclusiveWarpScanCircularShift(reduction);
+    }
+    __syncthreads();
 
-	if (threadIdx.x < (RADIX >> LANE_LOG))
-		s_warpHistograms[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_warpHistograms[threadIdx.x << LANE_LOG]);
-	__syncthreads();
+    if (threadIdx.x < (RADIX >> LANE_LOG))
+        s_warpHistograms[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_warpHistograms[threadIdx.x << LANE_LOG]);
+    __syncthreads();
 
-	if (threadIdx.x < RADIX && getLaneId())
-		s_warpHistograms[threadIdx.x] += __shfl_sync(0xfffffffe, s_warpHistograms[threadIdx.x - 1], 1);
-	__syncthreads();
+    if (threadIdx.x < RADIX && getLaneId())
+        s_warpHistograms[threadIdx.x] += __shfl_sync(0xfffffffe, s_warpHistograms[threadIdx.x - 1], 1);
+    __syncthreads();
 
-	//update offsets
-	if (WARP_INDEX)
-	{
-		#pragma unroll 
-		for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-		{
-			const uint32_t t2 = keys[i] >> radixShift & RADIX_MASK;
-			offsets[i] += s_warpHist[t2] + s_warpHistograms[t2];
-		}
-	}
-	else
-	{
-		#pragma unroll
-		for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-			offsets[i] += s_warpHistograms[keys[i] >> radixShift & RADIX_MASK];
-	}
+    //update offsets
+    if (WARP_INDEX)
+    {
+        #pragma unroll 
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        {
+            const uint32_t t2 = keys[i] >> radixShift & RADIX_MASK;
+            offsets[i] += s_warpHist[t2] + s_warpHistograms[t2];
+        }
+    }
+    else
+    {
+        #pragma unroll
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+            offsets[i] += s_warpHistograms[keys[i] >> radixShift & RADIX_MASK];
+    }
 
-	//load in threadblock reductions
-	if (threadIdx.x < RADIX)
-	{
-		s_localHistogram[threadIdx.x] = globalHist[threadIdx.x + (radixShift << 5)] +
-			passHist[threadIdx.x * gridDim.x + blockIdx.x] - s_warpHistograms[threadIdx.x];
-	}
-	__syncthreads();
+    //load in threadblock reductions
+    if (threadIdx.x < RADIX)
+    {
+        s_localHistogram[threadIdx.x] = globalHist[threadIdx.x + (radixShift << 5)] +
+            passHist[threadIdx.x * gridDim.x + blockIdx.x] - s_warpHistograms[threadIdx.x];
+    }
+    __syncthreads();
 
-	//scatter keys into shared memory
-	#pragma unroll
-	for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-		s_warpHistograms[offsets[i]] = keys[i];
-	__syncthreads();
+    //scatter keys into shared memory
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        s_warpHistograms[offsets[i]] = keys[i];
+    __syncthreads();
 
-	//scatter runs of keys into device memory
-	if (blockIdx.x < gridDim.x - 1)
-	{
-		#pragma unroll BIN_KEYS_PER_THREAD
-		for (uint32_t i = threadIdx.x; i < BIN_PART_SIZE; i += blockDim.x)
-			alt[s_localHistogram[s_warpHistograms[i] >> radixShift & RADIX_MASK] + i] = s_warpHistograms[i];
-	}
+    //scatter runs of keys into device memory
+    if (blockIdx.x < gridDim.x - 1)
+    {
+        #pragma unroll BIN_KEYS_PER_THREAD
+        for (uint32_t i = threadIdx.x; i < BIN_PART_SIZE; i += blockDim.x)
+            alt[s_localHistogram[s_warpHistograms[i] >> radixShift & RADIX_MASK] + i] = s_warpHistograms[i];
+    }
 
-	if (blockIdx.x == gridDim.x - 1)
-	{
-		const uint32_t finalPartSize = size - BIN_PART_START;
-		for (uint32_t i = threadIdx.x; i < finalPartSize; i += blockDim.x)
-			alt[s_localHistogram[s_warpHistograms[i] >> radixShift & RADIX_MASK] + i] = s_warpHistograms[i];
-	}
+    if (blockIdx.x == gridDim.x - 1)
+    {
+        const uint32_t finalPartSize = size - BIN_PART_START;
+        for (uint32_t i = threadIdx.x; i < finalPartSize; i += blockDim.x)
+            alt[s_localHistogram[s_warpHistograms[i] >> radixShift & RADIX_MASK] + i] = s_warpHistograms[i];
+    }
 }
 
 __global__ void DeviceRadixSort::DownsweepPairs(
-	uint32_t* sort,
-	uint32_t* sortPayload,
-	uint32_t* alt, 
-	uint32_t* altPayload,
-	uint32_t* globalHist,
-	uint32_t* passHist,
-	uint32_t size, 
-	uint32_t radixShift)
+    uint32_t* sort,
+    uint32_t* sortPayload,
+    uint32_t* alt, 
+    uint32_t* altPayload,
+    uint32_t* globalHist,
+    uint32_t* passHist,
+    uint32_t size, 
+    uint32_t radixShift)
 {
-	__shared__ uint32_t s_warpHistograms[BIN_PART_SIZE];
-	__shared__ uint32_t s_localHistogram[RADIX];
-	volatile uint32_t* s_warpHist = &s_warpHistograms[WARP_INDEX << RADIX_LOG];
+    __shared__ uint32_t s_warpHistograms[BIN_PART_SIZE];
+    __shared__ uint32_t s_localHistogram[RADIX];
+    volatile uint32_t* s_warpHist = &s_warpHistograms[WARP_INDEX << RADIX_LOG];
 
-	//clear shared memory
-	for (uint32_t i = threadIdx.x; i < BIN_HISTS_SIZE; i += blockDim.x)
-		s_warpHistograms[i] = 0;
+    //clear shared memory
+    for (uint32_t i = threadIdx.x; i < BIN_HISTS_SIZE; i += blockDim.x)
+        s_warpHistograms[i] = 0;
 
-	//load keys
-	uint32_t keys[BIN_KEYS_PER_THREAD];
-	if (blockIdx.x < gridDim.x - 1)
-	{
-		#pragma unroll
-		for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
-			keys[i] = sort[t];
-	}
+    //load keys
+    uint32_t keys[BIN_KEYS_PER_THREAD];
+    if (blockIdx.x < gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
+            keys[i] = sort[t];
+    }
 
-	//To handle input sizes not perfect multiples of the partition tile size,
-	//load "dummy" keys, which are keys with the highest possible digit.
-	//Because of the stability of the sort, these keys are guaranteed to be 
-	//last when scattered. This allows for effortless divergence free sorting
-	//of the final partition.
-	if (blockIdx.x == gridDim.x - 1)
-	{
-		#pragma unroll
-		for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
-			keys[i] = t < size ? sort[t] : 0xffffffff;
-	}
-	__syncthreads();
+    //To handle input sizes not perfect multiples of the partition tile size,
+    //load "dummy" keys, which are keys with the highest possible digit.
+    //Because of the stability of the sort, these keys are guaranteed to be 
+    //last when scattered. This allows for effortless divergence free sorting
+    //of the final partition.
+    if (blockIdx.x == gridDim.x - 1)
+    {
+        #pragma unroll
+        for (uint32_t i = 0, t = getLaneId() + BIN_SUB_PART_START + BIN_PART_START; i < BIN_KEYS_PER_THREAD; ++i, t += LANE_COUNT)
+            keys[i] = t < size ? sort[t] : 0xffffffff;
+    }
+    __syncthreads();
 
-	//WLMS
-	uint16_t offsets[BIN_KEYS_PER_THREAD];
-	#pragma unroll
-	for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-	{
-		unsigned warpFlags = 0xffffffff;
-		#pragma unroll
-		for (int k = 0; k < RADIX_LOG; ++k)
-		{
-			const bool t2 = keys[i] >> k + radixShift & 1;
-			warpFlags &= (t2 ? 0 : 0xffffffff) ^ __ballot_sync(0xffffffff, t2);
-		}
-		const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
-		uint32_t preIncrementVal;
-		if (bits == 0)
-			preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & RADIX_MASK], __popc(warpFlags));
+    //WLMS
+    uint16_t offsets[BIN_KEYS_PER_THREAD];
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+    {
+        unsigned warpFlags = 0xffffffff;
+        #pragma unroll
+        for (int k = 0; k < RADIX_LOG; ++k)
+        {
+            const bool t2 = keys[i] >> k + radixShift & 1;
+            warpFlags &= (t2 ? 0 : 0xffffffff) ^ __ballot_sync(0xffffffff, t2);
+        }
+        const uint32_t bits = __popc(warpFlags & getLaneMaskLt());
+        uint32_t preIncrementVal;
+        if (bits == 0)
+            preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & RADIX_MASK], __popc(warpFlags));
 
-		offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(warpFlags) - 1) + bits;
-	}
-	__syncthreads();
+        offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(warpFlags) - 1) + bits;
+    }
+    __syncthreads();
 
-	//exclusive prefix sum up the warp histograms
-	if (threadIdx.x < RADIX)
-	{
-		uint32_t reduction = s_warpHistograms[threadIdx.x];
-		for (uint32_t i = threadIdx.x + RADIX; i < BIN_HISTS_SIZE; i += RADIX)
-		{
-			reduction += s_warpHistograms[i];
-			s_warpHistograms[i] = reduction - s_warpHistograms[i];
-		}
+    //exclusive prefix sum up the warp histograms
+    if (threadIdx.x < RADIX)
+    {
+        uint32_t reduction = s_warpHistograms[threadIdx.x];
+        for (uint32_t i = threadIdx.x + RADIX; i < BIN_HISTS_SIZE; i += RADIX)
+        {
+            reduction += s_warpHistograms[i];
+            s_warpHistograms[i] = reduction - s_warpHistograms[i];
+        }
 
-		//begin the exclusive prefix sum across the reductions
-		s_warpHistograms[threadIdx.x] = InclusiveWarpScanCircularShift(reduction);
-	}
-	__syncthreads();
+        //begin the exclusive prefix sum across the reductions
+        s_warpHistograms[threadIdx.x] = InclusiveWarpScanCircularShift(reduction);
+    }
+    __syncthreads();
 
-	if (threadIdx.x < (RADIX >> LANE_LOG))
-		s_warpHistograms[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_warpHistograms[threadIdx.x << LANE_LOG]);
-	__syncthreads();
+    if (threadIdx.x < (RADIX >> LANE_LOG))
+        s_warpHistograms[threadIdx.x << LANE_LOG] = ActiveExclusiveWarpScan(s_warpHistograms[threadIdx.x << LANE_LOG]);
+    __syncthreads();
 
-	if (threadIdx.x < RADIX && getLaneId())
-		s_warpHistograms[threadIdx.x] += __shfl_sync(0xfffffffe, s_warpHistograms[threadIdx.x - 1], 1);
-	__syncthreads();
+    if (threadIdx.x < RADIX && getLaneId())
+        s_warpHistograms[threadIdx.x] += __shfl_sync(0xfffffffe, s_warpHistograms[threadIdx.x - 1], 1);
+    __syncthreads();
 
-	//update offsets
-	if (WARP_INDEX)
-	{
-		#pragma unroll 
-		for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-		{
-			const uint32_t t2 = keys[i] >> radixShift & RADIX_MASK;
-			offsets[i] += s_warpHist[t2] + s_warpHistograms[t2];
-		}
-	}
-	else
-	{
-		#pragma unroll
-		for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-			offsets[i] += s_warpHistograms[keys[i] >> radixShift & RADIX_MASK];
-	}
+    //update offsets
+    if (WARP_INDEX)
+    {
+        #pragma unroll 
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        {
+            const uint32_t t2 = keys[i] >> radixShift & RADIX_MASK;
+            offsets[i] += s_warpHist[t2] + s_warpHistograms[t2];
+        }
+    }
+    else
+    {
+        #pragma unroll
+        for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+            offsets[i] += s_warpHistograms[keys[i] >> radixShift & RADIX_MASK];
+    }
 
-	//load in threadblock reductions
-	if (threadIdx.x < RADIX)
-	{
-		s_localHistogram[threadIdx.x] = globalHist[threadIdx.x + (radixShift << 5)] +
-			passHist[threadIdx.x * gridDim.x + blockIdx.x] - s_warpHistograms[threadIdx.x];
-	}
-	__syncthreads();
+    //load in threadblock reductions
+    if (threadIdx.x < RADIX)
+    {
+        s_localHistogram[threadIdx.x] = globalHist[threadIdx.x + (radixShift << 5)] +
+            passHist[threadIdx.x * gridDim.x + blockIdx.x] - s_warpHistograms[threadIdx.x];
+    }
+    __syncthreads();
 
-	//scatter keys into shared memory
-	#pragma unroll
-	for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
-		s_warpHistograms[offsets[i]] = keys[i];
-	__syncthreads();
+    //scatter keys into shared memory
+    #pragma unroll
+    for (uint32_t i = 0; i < BIN_KEYS_PER_THREAD; ++i)
+        s_warpHistograms[offsets[i]] = keys[i];
+    __syncthreads();
 
-	//scatter runs of keys into device memory
-	uint8_t digits[BIN_KEYS_PER_THREAD];
+    //scatter runs of keys into device memory
+    uint8_t digits[BIN_KEYS_PER_THREAD];
     if (blockIdx.x < gridDim.x - 1)
     {
         //store the digit of key in register

@@ -21,101 +21,101 @@
 //PTX functions
 __device__ __forceinline__ uint32_t getLaneId() 
 {
-	uint32_t laneId;
-	asm("mov.u32 %0, %%laneid;" : "=r"(laneId));
-	return laneId;
+    uint32_t laneId;
+    asm("mov.u32 %0, %%laneid;" : "=r"(laneId));
+    return laneId;
 }
 
 __device__ __forceinline__ unsigned getLaneMaskLt() 
 {
-	unsigned mask;
-	asm("mov.u32 %0, %%lanemask_lt;" : "=r"(mask));
-	return mask;
+    unsigned mask;
+    asm("mov.u32 %0, %%lanemask_lt;" : "=r"(mask));
+    return mask;
 }
 
 //Warp scans
 __device__ __forceinline__ uint32_t InclusiveWarpScan(uint32_t val)
 {
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
-	{
-		const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
+    {
+        const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	return val;
+    return val;
 }
 
 __device__ __forceinline__ uint32_t ActiveInclusiveWarpScan(uint32_t val)
 {
-	const uint32_t mask = __activemask();
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1)
-	{
-		const uint32_t t = __shfl_up_sync(mask, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    const uint32_t mask = __activemask();
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1)
+    {
+        const uint32_t t = __shfl_up_sync(mask, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	return val;
+    return val;
 }
 
 __device__ __forceinline__ uint32_t InclusiveWarpScanCircularShift(uint32_t val)
 {
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
-	{
-		const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
+    {
+        const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	return __shfl_sync(0xffffffff, val, getLaneId() + LANE_MASK & LANE_MASK);
+    return __shfl_sync(0xffffffff, val, getLaneId() + LANE_MASK & LANE_MASK);
 }
 
 __device__ __forceinline__ uint32_t ActiveInclusiveWarpScanCircularShift(uint32_t val)
 {
-	const uint32_t mask = __activemask();
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
-	{
-		const uint32_t t = __shfl_up_sync(mask, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    const uint32_t mask = __activemask();
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
+    {
+        const uint32_t t = __shfl_up_sync(mask, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	return __shfl_sync(mask, val, getLaneId() + LANE_MASK & LANE_MASK);
+    return __shfl_sync(mask, val, getLaneId() + LANE_MASK & LANE_MASK);
 }
 
 __device__ __forceinline__ uint32_t ExclusiveWarpScan(uint32_t val)
 {
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
-	{
-		const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
+    {
+        const uint32_t t = __shfl_up_sync(0xffffffff, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	const uint32_t t = __shfl_up_sync(0xffffffff, val, 1, 32);
-	return getLaneId() ? t : 0;
+    const uint32_t t = __shfl_up_sync(0xffffffff, val, 1, 32);
+    return getLaneId() ? t : 0;
 }
 
 __device__ __forceinline__ uint32_t ActiveExclusiveWarpScan(uint32_t val)
 {
-	const uint32_t mask = __activemask();
-	#pragma unroll
-	for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
-	{
-		const uint32_t t = __shfl_up_sync(mask, val, i, 32);
-		if (getLaneId() >= i) val += t;
-	}
+    const uint32_t mask = __activemask();
+    #pragma unroll
+    for (int i = 1; i <= 16; i <<= 1) // 16 = LANE_COUNT >> 1
+    {
+        const uint32_t t = __shfl_up_sync(mask, val, i, 32);
+        if (getLaneId() >= i) val += t;
+    }
 
-	const uint32_t t = __shfl_up_sync(mask, val, 1, 32);
-	return getLaneId() ? t : 0;
+    const uint32_t t = __shfl_up_sync(mask, val, 1, 32);
+    return getLaneId() ? t : 0;
 }
 
 __device__ __forceinline__ double WarpReduceSum(double val)
 {
-	#pragma unroll
-	for (int mask = 16; mask; mask >>= 1) // 16 = LANE_COUNT >> 1
-		val += __shfl_xor_sync(0xffffffff, val, mask, LANE_COUNT);
+    #pragma unroll
+    for (int mask = 16; mask; mask >>= 1) // 16 = LANE_COUNT >> 1
+        val += __shfl_xor_sync(0xffffffff, val, mask, LANE_COUNT);
 
-	return val;
+    return val;
 }

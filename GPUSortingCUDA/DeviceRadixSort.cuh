@@ -15,32 +15,32 @@
 
 namespace DeviceRadixSort
 {
-	__global__ void Upsweep(
-		uint32_t* sort,
-		uint32_t* globalHist,
-		uint32_t* passHist,
-		uint32_t size,
-		uint32_t radixShift);
+    __global__ void Upsweep(
+        uint32_t* sort,
+        uint32_t* globalHist,
+        uint32_t* passHist,
+        uint32_t size,
+        uint32_t radixShift);
 
-	__global__ void Scan(
-		uint32_t* passHist,
-		uint32_t threadBlocks);
+    __global__ void Scan(
+        uint32_t* passHist,
+        uint32_t threadBlocks);
 
-	__global__ void DownsweepKeysOnly(
-		uint32_t* sort,
-		uint32_t* alt,
-		uint32_t* globalHist,
-		uint32_t* passHist,
-		uint32_t size,
-		uint32_t radixShift);
+    __global__ void DownsweepKeysOnly(
+        uint32_t* sort,
+        uint32_t* alt,
+        uint32_t* globalHist,
+        uint32_t* passHist,
+        uint32_t size,
+        uint32_t radixShift);
 
-	__global__ void DownsweepPairs(
-		uint32_t* sort,
-		uint32_t* sortPayload,
-		uint32_t* alt,
-		uint32_t* altPayload,
-		uint32_t* globalHist,
-		uint32_t* passHist,
-		uint32_t size,
-		uint32_t radixShift);
+    __global__ void DownsweepPairs(
+        uint32_t* sort,
+        uint32_t* sortPayload,
+        uint32_t* alt,
+        uint32_t* altPayload,
+        uint32_t* globalHist,
+        uint32_t* passHist,
+        uint32_t size,
+        uint32_t radixShift);
 }
