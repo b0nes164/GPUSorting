@@ -503,7 +503,7 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     GroupMemoryBarrierWithGroupSync();
     
     if (gid.x < e_threadBlocks - 1)
-        ScatterPairsDevice(gtid.x, gid.x, offsets);
+        ScatterDevice(gtid.x, gid.x, offsets);
         
     if (gid.x == e_threadBlocks - 1)
         ScatterDevicePartial(gtid.x, gid.x, offsets);

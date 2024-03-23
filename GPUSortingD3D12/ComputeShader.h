@@ -13,7 +13,7 @@
 class ComputeShader
 {
 public:
-    explicit ComputeShader(
+    ComputeShader(
         winrt::com_ptr<ID3D12Device> device, 
         DeviceInfo const& info,
         std::filesystem::path const& shaderPath,
@@ -23,25 +23,25 @@ public:
     {
         auto byteCode = CompileShader(shaderPath, info, entryPoint,
             compileArguments);
-        _rootSig = CreateRootSignature(device, rootParameters);
+        m_rootSignature = CreateRootSignature(device, rootParameters);
 
         D3D12_COMPUTE_PIPELINE_STATE_DESC pipelineDesc{};
-        pipelineDesc.pRootSignature = _rootSig.get();
+        pipelineDesc.pRootSignature = m_rootSignature.get();
         pipelineDesc.CS.pShaderBytecode = byteCode.data();
         pipelineDesc.CS.BytecodeLength = byteCode.size();
         winrt::check_hresult(device->CreateComputePipelineState(
-            &pipelineDesc, IID_PPV_ARGS(_computePipelineStateDesc.put())));
+            &pipelineDesc, IID_PPV_ARGS(m_computePipelineStateDesc.put())));
     }
 
     void SetPipelineState(winrt::com_ptr<ID3D12GraphicsCommandList> cmdList)
     {
-        cmdList->SetPipelineState(_computePipelineStateDesc.get());
-        cmdList->SetComputeRootSignature(_rootSig.get());
+        cmdList->SetPipelineState(m_computePipelineStateDesc.get());
+        cmdList->SetComputeRootSignature(m_rootSignature.get());
     }
 
 private:
-    winrt::com_ptr<ID3D12RootSignature> _rootSig;
-    winrt::com_ptr<ID3D12PipelineState> _computePipelineStateDesc;
+    winrt::com_ptr<ID3D12RootSignature> m_rootSignature;
+    winrt::com_ptr<ID3D12PipelineState> m_computePipelineStateDesc;
 
     std::vector<uint8_t> CompileShader(
         std::filesystem::path const& shaderPath, 
@@ -49,31 +49,20 @@ private:
         const wchar_t* entryPoint,
         std::vector<std::wstring>& arguments)
     {
-        std::vector<uint8_t> byteCode;
-        winrt::com_ptr<IDxcLibrary> library;
-        winrt::check_hresult(DxcCreateInstance(
-            CLSID_DxcLibrary, IID_PPV_ARGS(library.put())));
+        winrt::com_ptr<IDxcUtils> utils;
+        winrt::check_hresult(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(utils.put())));
 
-        winrt::com_ptr<IDxcCompiler> compiler;
-        winrt::check_hresult(DxcCreateInstance(
-            CLSID_DxcCompiler, IID_PPV_ARGS(compiler.put())));
-
-        winrt::com_ptr<IDxcIncludeHandler> includeHandler;
-        winrt::check_hresult(library->CreateIncludeHandler(
-            includeHandler.put()));
-
+        uint32_t codePage = DXC_CP_UTF8;
         winrt::com_ptr<IDxcBlobEncoding> sourceBlob;
-        uint32_t codePage = CP_UTF8;
-        winrt::check_hresult(library->CreateBlobFromFile(
+        winrt::check_hresult(utils->LoadFile(
             shaderPath.wstring().c_str(), &codePage, sourceBlob.put()));
 
         std::vector<wchar_t const*> pargs;
         std::transform(arguments.begin(), arguments.end(), 
             back_inserter(pargs), [](auto const& a) { return a.c_str(); });
 
-        winrt::com_ptr<IDxcOperationResult> result;
-        HRESULT hr = compiler->Compile(
-            sourceBlob.get(),
+        winrt::com_ptr<IDxcCompilerArgs> compilerArgs;
+        winrt::check_hresult(utils->BuildArguments(
             shaderPath.wstring().c_str(),
             entryPoint,
             info.SupportedShaderModel.c_str(),
@@ -81,35 +70,33 @@ private:
             static_cast<uint32_t>(pargs.size()),
             nullptr,
             0,
+            compilerArgs.put()));
+
+        DxcBuffer dxcBuffer = {
+            sourceBlob->GetBufferPointer(),
+            sourceBlob->GetBufferSize(),
+            codePage };
+
+        winrt::com_ptr<IDxcIncludeHandler> includeHandler;
+        winrt::check_hresult(utils->CreateDefaultIncludeHandler(
+            includeHandler.put()));
+
+        winrt::com_ptr<IDxcCompiler3> compiler;
+        winrt::check_hresult(DxcCreateInstance(
+            CLSID_DxcCompiler, IID_PPV_ARGS(compiler.put())));
+
+        winrt::com_ptr<IDxcResult> result;
+        winrt::check_hresult(compiler->Compile(
+            &dxcBuffer,
+            compilerArgs->GetArguments(),
+            compilerArgs->GetCount(),
             includeHandler.get(),
-            result.put());
-
-        if (SUCCEEDED(hr))
-        {
-            winrt::check_hresult(result->GetStatus(&hr));
-        }
-
-        if (FAILED(hr))
-        {
-            if (result)
-            {
-                winrt::com_ptr<IDxcBlobEncoding> errorsBlob;
-                HRESULT getErrorBufferResult = 
-                    result->GetErrorBuffer(errorsBlob.put());
-                if (SUCCEEDED(getErrorBufferResult))
-                {
-                    std::cout << "Details: ";
-                    std::cout << static_cast<const char*>(
-                        errorsBlob->GetBufferPointer());
-                    std::cout << "\n\n";
-                }
-            }
-            winrt::check_hresult(hr);
-        }
+            IID_PPV_ARGS(result.put())));
 
         winrt::com_ptr<IDxcBlob> computeShader;
         winrt::check_hresult(result->GetResult(computeShader.put()));
-        byteCode.resize(computeShader->GetBufferSize());
+
+        std::vector<uint8_t> byteCode(computeShader->GetBufferSize());
         memcpy(byteCode.data(), computeShader->GetBufferPointer(),
             computeShader->GetBufferSize());
 

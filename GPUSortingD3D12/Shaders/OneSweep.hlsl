@@ -373,7 +373,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
     GroupMemoryBarrierWithGroupSync();
     
     if(partitionIndex < e_threadBlocks - 1)
-        ScatterPairsDevice(gtid.x, partitionIndex, offsets);
+        ScatterDevice(gtid.x, partitionIndex, offsets);
         
     if(partitionIndex == e_threadBlocks - 1)
         ScatterDevicePartial(gtid.x, partitionIndex, offsets);

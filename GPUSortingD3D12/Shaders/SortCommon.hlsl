@@ -623,7 +623,6 @@ inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
 //KEYS ONLY
 inline void ScatterKeysOnlyDeviceAscending(uint gtid)
 {
-    [unroll(KEYS_PER_THREAD)]
     for (uint i = gtid; i < PART_SIZE; i += D_DIM)
         WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
 }
@@ -632,7 +631,6 @@ inline void ScatterKeysOnlyDeviceDescending(uint gtid)
 {
     if(e_radixShift == 24)
     {
-        [unroll(KEYS_PER_THREAD)]
         for (uint i = gtid; i < PART_SIZE; i += D_DIM)
             WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
     }
@@ -782,7 +780,6 @@ inline void ScatterDevice(
 //KEYS ONLY
 inline void ScatterKeysOnlyDevicePartialAscending(uint gtid, uint finalPartSize)
 {
-    [unroll(KEYS_PER_THREAD)]
     for (uint i = gtid; i < PART_SIZE; i += D_DIM)
     {
         if (i < finalPartSize)
@@ -794,7 +791,6 @@ inline void ScatterKeysOnlyDevicePartialDescending(uint gtid, uint finalPartSize
 {
     if (e_radixShift == 24)
     {
-        [unroll(KEYS_PER_THREAD)]
         for (uint i = gtid; i < PART_SIZE; i += D_DIM)
         {
             if (i < finalPartSize)
