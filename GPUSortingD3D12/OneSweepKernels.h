@@ -29,7 +29,7 @@ namespace OneSweepKernels
     public:
         InitOneSweep(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -51,7 +51,7 @@ namespace OneSweepKernels
         {
             std::array<uint32_t, 4> t = { 0, 0, threadBlocks, 0 };
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, globalHist);
             cmdList->SetComputeRootUnorderedAccessView(2, passHist);
             cmdList->SetComputeRootUnorderedAccessView(3, index);
@@ -75,7 +75,7 @@ namespace OneSweepKernels
     public:
         explicit GlobalHist(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -105,7 +105,7 @@ namespace OneSweepKernels
                     k_isNotPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
                 cmdList->Dispatch(k_maxDim, fullBlocks, 1);
@@ -121,7 +121,7 @@ namespace OneSweepKernels
                 fullBlocks << 1 | k_isPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
                 cmdList->Dispatch(partialBlocks, 1, 1);
@@ -144,7 +144,7 @@ namespace OneSweepKernels
     public:
         Scan(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -166,7 +166,7 @@ namespace OneSweepKernels
         {
             std::array<uint32_t, 4> t = { 0, 0, threadBlocks, 0 };
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, globalHist);
             cmdList->SetComputeRootUnorderedAccessView(2, passHist);
             cmdList->Dispatch(radixPasses, 1, 1);
@@ -188,7 +188,7 @@ namespace OneSweepKernels
     public:
         explicit DigitBinningPass(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -226,7 +226,7 @@ namespace OneSweepKernels
                     0 };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, altBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, sortPayloadBuffer);
@@ -250,7 +250,7 @@ namespace OneSweepKernels
                     0 };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, altBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, sortPayloadBuffer);

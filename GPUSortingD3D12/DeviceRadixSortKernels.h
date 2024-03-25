@@ -27,7 +27,7 @@ namespace DeviceRadixSortKernels
     public:
         InitDeviceRadixSort(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring> compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -63,7 +63,7 @@ namespace DeviceRadixSortKernels
     public:
         Upsweep(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring> compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -95,7 +95,7 @@ namespace DeviceRadixSortKernels
                     k_isNotPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
                 cmdList->SetComputeRootUnorderedAccessView(3, passHist);
@@ -112,7 +112,7 @@ namespace DeviceRadixSortKernels
                 fullBlocks << 1 | k_isPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
                 cmdList->SetComputeRootUnorderedAccessView(3, passHist);
@@ -137,7 +137,7 @@ namespace DeviceRadixSortKernels
     public:
         Scan(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -157,7 +157,7 @@ namespace DeviceRadixSortKernels
         {
             std::array<uint32_t, 4> t = { 0, 0, partitions, 0 };
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, passHist);
             cmdList->Dispatch(256, 1, 1);
         }
@@ -177,7 +177,7 @@ namespace DeviceRadixSortKernels
     public:
         Downsweep(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -212,7 +212,7 @@ namespace DeviceRadixSortKernels
                     k_isNotPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, altBuffer);
@@ -232,7 +232,7 @@ namespace DeviceRadixSortKernels
                 fullBlocks << 1 | k_isPartialBitFlag };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, altBuffer);

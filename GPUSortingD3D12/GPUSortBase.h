@@ -20,14 +20,14 @@ protected:
     const uint32_t k_radix;
     const uint32_t k_maxReadBack;
 
-    const GPUSortingConfig k_sortingConfig{};
-    const TuningParameters k_tuningParameters{};
+    const GPUSorting::GPUSortingConfig k_sortingConfig{};
+    const GPUSorting::TuningParameters k_tuningParameters{};
 
     uint32_t m_numKeys = 0;
     uint32_t m_partitions = 0;
 
     winrt::com_ptr<ID3D12Device> m_device;
-    DeviceInfo m_devInfo{};
+    GPUSorting::DeviceInfo m_devInfo{};
     std::vector<std::wstring> m_compileArguments;
 
     winrt::com_ptr<ID3D12GraphicsCommandList> m_cmdList;
@@ -55,29 +55,33 @@ protected:
     //chain constructors to allow passing in manual tuning params
     GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
         const char* sortName,
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack,
-        TuningParameters tuningParams) :
+        GPUSorting::TuningParameters tuningParams) :
         k_sortName(sortName),
         k_radixPasses(radixPasses),
         k_radix(radix),
         k_maxReadBack(maxReadBack),
         m_devInfo(_deviceInfo),
-        k_sortingConfig({ GPU_SORTING_KEYS_ONLY, sortingOrder, keyType, GPU_SORTING_PAYLOAD_UINT32 }),
+        k_sortingConfig({ 
+            GPUSorting::MODE_KEYS_ONLY,
+            sortingOrder,
+            keyType,
+            GPUSorting::PAYLOAD_UINT32 }),
         k_tuningParameters(tuningParams)
     {
     };
 
     GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
         const char* sortName,
         uint32_t radixPasses,
         uint32_t radix,
@@ -91,38 +95,44 @@ protected:
             radixPasses,
             radix,
             maxReadBack,
-            Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_KEYS_ONLY))
+            Tuner::GetTuningParameters(
+                _deviceInfo,
+                GPUSorting::MODE_KEYS_ONLY))
     {
     };
 
     //Pairs
     GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
-        GPU_SORTING_PAYLOAD_TYPE payloadType,
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
+        GPUSorting::PAYLOAD_TYPE payloadType,
         const char* sortName,
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack,
-        TuningParameters tuningParams) :
+        GPUSorting::TuningParameters tuningParams) :
         k_sortName(sortName),
         k_radixPasses(radixPasses),
         k_radix(radix),
         k_maxReadBack(maxReadBack),
         m_devInfo(_deviceInfo),
-        k_sortingConfig({ GPU_SORTING_PAIRS, sortingOrder, keyType, payloadType }),
+        k_sortingConfig({ 
+            GPUSorting::MODE_PAIRS,
+            sortingOrder,
+            keyType,
+            payloadType }),
         k_tuningParameters(tuningParams)
     { 
     };
 
     GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
-        GPU_SORTING_PAYLOAD_TYPE payloadType,
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
+        GPUSorting::PAYLOAD_TYPE payloadType,
         const char* sortName,
         uint32_t radixPasses,
         uint32_t radix,
@@ -137,7 +147,9 @@ protected:
             radixPasses,
             radix,
             maxReadBack,
-            Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_PAIRS))
+            Tuner::GetTuningParameters(
+                _deviceInfo,
+                GPUSorting::MODE_PAIRS))
     {
     };
 
@@ -173,13 +185,13 @@ public:
             for (uint32_t i = 0; i < vecOut.size(); ++i)
                 printf("%u %u \n", i, vecOut[i]);
 
-            if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+            if (k_sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
             {
                 ReadbackPreBarrier(m_cmdList, m_sortPayloadBuffer);
                 m_cmdList->CopyBufferRegion(m_readBackBuffer.get(), 0, m_sortPayloadBuffer.get(), 0, (uint32_t)readBackSize * sizeof(uint32_t));
                 ReadbackPostBarrier(m_cmdList, m_sortPayloadBuffer);
                 ExecuteCommandList();
-                vecOut = ReadBackBuffer(m_readBackBuffer, readBackSize);
+                vecOut = ReadBackBuffer(m_readBackBuffer, (uint32_t)readBackSize);
 
                 printf("\n \n \n");
                 printf("---------------PAYLOADS---------------\n");
@@ -189,7 +201,11 @@ public:
         }
     }
 
-    void BatchTiming(uint32_t inputSize, uint32_t batchSize, uint32_t seed, ENTROPY_PRESET entropyPreset)
+    void BatchTiming(
+        uint32_t inputSize,
+        uint32_t batchSize,
+        uint32_t seed,
+        GPUSorting::ENTROPY_PRESET entropyPreset)
     {
         UpdateSize(inputSize);
 
@@ -329,34 +345,34 @@ protected:
             break;
         }
 
-        if (k_sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)
+        if (k_sortingConfig.sortingOrder == GPUSorting::ORDER_ASCENDING)
             m_compileArguments.push_back(L"-DSHOULD_ASCEND");
 
         switch (k_sortingConfig.sortingKeyType)
         {
-        case GPU_SORTING_KEY_UINT32:
+        case GPUSorting::KEY_UINT32:
             m_compileArguments.push_back(L"-DKEY_UINT");
             break;
-        case GPU_SORTING_KEY_INT32:
+        case GPUSorting::KEY_INT32:
             m_compileArguments.push_back(L"-DKEY_INT");
             break;
-        case GPU_SORTING_KEY_FLOAT32:
+        case GPUSorting::KEY_FLOAT32:
             m_compileArguments.push_back(L"-DKEY_FLOAT");
             break;
         }
 
-        if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+        if (k_sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
         {
             m_compileArguments.push_back(L"-DSORT_PAIRS");
             switch (k_sortingConfig.sortingPayloadType)
             {
-            case GPU_SORTING_PAYLOAD_UINT32:
+            case GPUSorting::PAYLOAD_UINT32:
                 m_compileArguments.push_back(L"-DPAYLOAD_UINT");
                 break;
-            case GPU_SORTING_PAYLOAD_INT32:
+            case GPUSorting::PAYLOAD_INT32:
                 m_compileArguments.push_back(L"-DPAYLOAD_INT");
                 break;
-            case GPU_SORTING_PAYLOAD_FLOAT32:
+            case GPUSorting::PAYLOAD_FLOAT32:
                 m_compileArguments.push_back(L"-DPAYLOAD_FLOAT");
                 break;
             }
@@ -426,13 +442,13 @@ protected:
             m_sortBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_numKeys,
-            ENTROPY_PRESET_1,
+            GPUSorting::ENTROPY_PRESET_1,
             seed);
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
         ExecuteCommandList();
     }
 
-    void CreateTestInput(uint32_t seed, ENTROPY_PRESET entropyPreset)
+    void CreateTestInput(uint32_t seed, GPUSorting::ENTROPY_PRESET entropyPreset)
     {
         //Init the sorting input
         m_initSortInput->Dispatch(
@@ -505,7 +521,7 @@ protected:
         return ValidateOutput(false);
     }
 
-    double TimeSort(uint32_t seed, ENTROPY_PRESET entropyPreset)
+    double TimeSort(uint32_t seed, GPUSorting::ENTROPY_PRESET entropyPreset)
     {
         CreateTestInput(seed, entropyPreset);
         m_cmdList->EndQuery(m_queryHeap.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
@@ -526,39 +542,39 @@ protected:
         return (x + y - 1) / y;
     }
 
-    static void PrintSortingConfig(const GPUSortingConfig& sortingConfig)
+    static void PrintSortingConfig(const GPUSorting::GPUSortingConfig& sortingConfig)
     {
 
         switch (sortingConfig.sortingKeyType)
         {
-        case GPU_SORTING_KEY_UINT32:
+        case GPUSorting::KEY_UINT32:
             printf("keys uint32 ");
             break;
-        case GPU_SORTING_KEY_INT32:
+        case GPUSorting::KEY_INT32:
             printf("keys int32 ");
             break;
-        case GPU_SORTING_KEY_FLOAT32:
+        case GPUSorting::KEY_FLOAT32:
             printf("keys float32 ");
             break;
         }
 
-        if (sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+        if (sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
         {
             switch (sortingConfig.sortingPayloadType)
             {
-            case GPU_SORTING_PAYLOAD_UINT32:
+            case GPUSorting::PAYLOAD_UINT32:
                 printf("payload uint32 ");
                 break;
-            case GPU_SORTING_PAYLOAD_INT32:
+            case GPUSorting::PAYLOAD_INT32:
                 printf("payload int32 ");
                 break;
-            case GPU_SORTING_PAYLOAD_FLOAT32:
+            case GPUSorting::PAYLOAD_FLOAT32:
                 printf("payload float32 ");
                 break;
             }
         }
 
-        if (sortingConfig.sortingOrder == GPU_SORTING_ASCENDING)
+        if (sortingConfig.sortingOrder == GPUSorting::ORDER_ASCENDING)
             printf("ascending ");
         else
             printf("descending ");

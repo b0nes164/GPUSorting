@@ -26,7 +26,7 @@ namespace UtilityKernels
 
         explicit InitSortInput(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -44,12 +44,12 @@ namespace UtilityKernels
             const D3D12_GPU_VIRTUAL_ADDRESS& sortBuffer,
             const D3D12_GPU_VIRTUAL_ADDRESS& sortPayloadBuffer,
             const uint32_t& numKeys,
-            const ENTROPY_PRESET& entropyPreset,
+            const GPUSorting::ENTROPY_PRESET& entropyPreset,
             uint32_t seed)
         {
             std::array<uint32_t, 4> t = { numKeys, 0, seed, (uint32_t)entropyPreset };
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
             cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
             cmdList->Dispatch(256, 1, 1);
@@ -71,7 +71,7 @@ namespace UtilityKernels
     public:
         explicit ClearErrorCount(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -109,7 +109,7 @@ namespace UtilityKernels
     public:
         explicit Validate(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -140,7 +140,7 @@ namespace UtilityKernels
                     0, };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, errorCount);
@@ -157,7 +157,7 @@ namespace UtilityKernels
                     0, };
 
                 SetPipelineState(cmdList);
-                cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+                cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
                 cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
                 cmdList->SetComputeRootUnorderedAccessView(3, errorCount);
@@ -182,7 +182,7 @@ namespace UtilityKernels
     public:
         InitScanTestValues(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -202,7 +202,7 @@ namespace UtilityKernels
         {
             std::array<uint32_t, 4> t = { numKeys, 0, 0, 0 };
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, passHist);
             cmdList->Dispatch(1, 1, 1);
         }

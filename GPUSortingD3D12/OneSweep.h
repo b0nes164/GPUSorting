@@ -30,16 +30,16 @@ class OneSweep : public GPUSortBase
 public:
     OneSweep(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType);
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType);
 
     OneSweep(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
-        GPU_SORTING_PAYLOAD_TYPE payloadType);
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
+        GPUSorting::PAYLOAD_TYPE payloadType);
 
     ~OneSweep();
 

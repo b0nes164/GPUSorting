@@ -46,16 +46,16 @@ class FFXParallelSort : public GPUSortBase
 public:
     FFXParallelSort(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType);
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType);
 
     FFXParallelSort(
         winrt::com_ptr<ID3D12Device> _device,
-        DeviceInfo _deviceInfo,
-        GPU_SORTING_ORDER sortingOrder,
-        GPU_SORTING_KEY_TYPE keyType,
-        GPU_SORTING_PAYLOAD_TYPE payloadType);
+        GPUSorting::DeviceInfo _deviceInfo,
+        GPUSorting::ORDER sortingOrder,
+        GPUSorting::KEY_TYPE keyType,
+        GPUSorting::PAYLOAD_TYPE payloadType);
 
     ~FFXParallelSort();
 

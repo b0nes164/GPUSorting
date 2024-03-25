@@ -9,74 +9,77 @@
 #pragma once
 #include "pch.h"
 
-struct DeviceInfo
+namespace GPUSorting
 {
-    std::wstring Description;
-    std::wstring SupportedShaderModel;
-    uint32_t deviceId;
-    uint32_t vendorId;
-    uint32_t SIMDWidth;
-    uint32_t SIMDLaneCount;
-    uint32_t SIMDMaxWidth;
-    bool SupportsWaveIntrinsics;
-    bool Supports16BitTypes;
-    bool SupportsDeviceRadixSort;
-    bool SupportsOneSweep;
-};
+    struct DeviceInfo
+    {
+        std::wstring Description;
+        std::wstring SupportedShaderModel;
+        uint32_t deviceId;
+        uint32_t vendorId;
+        uint32_t SIMDWidth;
+        uint32_t SIMDLaneCount;
+        uint32_t SIMDMaxWidth;
+        bool SupportsWaveIntrinsics;
+        bool Supports16BitTypes;
+        bool SupportsDeviceRadixSort;
+        bool SupportsOneSweep;
+    };
 
-struct TuningParameters
-{
-    bool shouldLockWavesTo32;
-    uint32_t keysPerThread;
-    uint32_t threadsPerThreadblock;
-    uint32_t partitionSize;
-    uint32_t totalSharedMemory;
-};
+    struct TuningParameters
+    {
+        bool shouldLockWavesTo32;
+        uint32_t keysPerThread;
+        uint32_t threadsPerThreadblock;
+        uint32_t partitionSize;
+        uint32_t totalSharedMemory;
+    };
 
-typedef 
-enum GPU_SORTING_MODE
-{
-    GPU_SORTING_KEYS_ONLY   = 0,
-    GPU_SORTING_PAIRS       = 1,
-}   GPU_SORTING_MODE;
+    typedef
+        enum MODE
+    {
+        MODE_KEYS_ONLY = 0,
+        MODE_PAIRS = 1,
+    }   MODE;
 
-typedef
-enum GPU_SORTING_ORDER
-{
-    GPU_SORTING_ASCENDING   = 0,
-    GPU_SORTING_DESCENDING  = 1,  
-}   GPU_SORTING_ORDER;
+    typedef
+        enum ORDER
+    {
+        ORDER_ASCENDING = 0,
+        ORDER_DESCENDING = 1,
+    }   ORDER;
 
-typedef
-enum GPU_SORTING_KEY_TYPE
-{
-    GPU_SORTING_KEY_UINT32  = 0,
-    GPU_SORTING_KEY_INT32   = 1,
-    GPU_SORTING_KEY_FLOAT32 = 2,
-}   GPU_SORTING_KEY_TYPE;
+    typedef
+        enum KEY_TYPE
+    {
+        KEY_UINT32 = 0,
+        KEY_INT32 = 1,
+        KEY_FLOAT32 = 2,
+    }   KEY_TYPE;
 
-typedef
-enum GPU_SORTING_PAYLOAD_TYPE
-{
-    GPU_SORTING_PAYLOAD_UINT32  = 0,
-    GPU_SORTING_PAYLOAD_INT32   = 1,
-    GPU_SORTING_PAYLOAD_FLOAT32 = 2,
-}   GPU_SORTING_PAYLOAD_TYPE;
+    typedef
+        enum PAYLOAD_TYPE
+    {
+        PAYLOAD_UINT32 = 0,
+        PAYLOAD_INT32 = 1,
+        PAYLOAD_FLOAT32 = 2,
+    }   PAYLOAD_TYPE;
 
-struct GPUSortingConfig
-{
-    GPU_SORTING_MODE sortingMode;
-    GPU_SORTING_ORDER sortingOrder;
-    GPU_SORTING_KEY_TYPE sortingKeyType;
-    GPU_SORTING_PAYLOAD_TYPE sortingPayloadType;
-};
+    struct GPUSortingConfig
+    {
+        MODE sortingMode;
+        ORDER sortingOrder;
+        KEY_TYPE sortingKeyType;
+        PAYLOAD_TYPE sortingPayloadType;
+    };
 
-typedef
-enum ENTROPY_PRESET
-{
-    ENTROPY_PRESET_1 = 0,
-    ENTROPY_PRESET_2 = 1,
-    ENTROPY_PRESET_3 = 2,
-    ENTROPY_PRESET_4 = 3,
-    ENTROPY_PRESET_5 = 4,
-}   ENTROPY_PRESET;
+    typedef
+        enum ENTROPY_PRESET
+    {
+        ENTROPY_PRESET_1 = 0,
+        ENTROPY_PRESET_2 = 1,
+        ENTROPY_PRESET_3 = 2,
+        ENTROPY_PRESET_4 = 3,
+        ENTROPY_PRESET_5 = 4,
+    }   ENTROPY_PRESET;
+}

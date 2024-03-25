@@ -5,60 +5,60 @@
 
 static void SuperTestOneSweep(
     winrt::com_ptr<ID3D12Device> device,
-    DeviceInfo const& deviceInfo)
+    const GPUSorting::DeviceInfo& deviceInfo)
 {
     //KEY INT
     OneSweep* oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
@@ -66,54 +66,54 @@ static void SuperTestOneSweep(
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
@@ -121,114 +121,114 @@ static void SuperTestOneSweep(
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 
     oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_INT32);
     oneSweep->TestAll();
     oneSweep->~OneSweep();
 }
 
 static void SuperTestDeviceRadixSort(
     winrt::com_ptr<ID3D12Device> device,
-    DeviceInfo const& deviceInfo)
+    const GPUSorting::DeviceInfo& deviceInfo)
 {
     //KEY UINT
     DeviceRadixSort* dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
@@ -236,54 +236,54 @@ static void SuperTestDeviceRadixSort(
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_FLOAT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_FLOAT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
@@ -291,54 +291,54 @@ static void SuperTestDeviceRadixSort(
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_FLOAT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_FLOAT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 
     dvr = new DeviceRadixSort(
         device,
         deviceInfo,
-        GPU_SORTING_DESCENDING,
-        GPU_SORTING_KEY_INT32,
-        GPU_SORTING_PAYLOAD_INT32);
+        GPUSorting::ORDER_DESCENDING,
+        GPUSorting::KEY_INT32,
+        GPUSorting::PAYLOAD_INT32);
     dvr->TestAll();
     dvr->~DeviceRadixSort();
 }

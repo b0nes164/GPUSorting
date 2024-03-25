@@ -46,7 +46,7 @@ namespace FFXParallelSortKernels
     public:
         FfxPsCount(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -80,7 +80,7 @@ namespace FFXParallelSortKernels
                 0 };
 
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, srcBuffer);
             cmdList->SetComputeRootUnorderedAccessView(2, sumTable);
             cmdList->Dispatch(numThreadGroups, 1, 1);
@@ -102,7 +102,7 @@ namespace FFXParallelSortKernels
     public:
         FfxPsCountReduce(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -134,7 +134,7 @@ namespace FFXParallelSortKernels
                 0 };
 
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, sumTable);
             cmdList->SetComputeRootUnorderedAccessView(2, reduceTable);
             cmdList->Dispatch(numScanValues, 1, 1);
@@ -156,7 +156,7 @@ namespace FFXParallelSortKernels
     public:
         FfxPsScan(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -188,7 +188,7 @@ namespace FFXParallelSortKernels
                 0 };
 
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, scanSrc);
             cmdList->SetComputeRootUnorderedAccessView(2, scanDst);
             cmdList->SetComputeRootUnorderedAccessView(3, scanScratch);
@@ -212,7 +212,7 @@ namespace FFXParallelSortKernels
     public:
         FfxPsScanAdd(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -245,7 +245,7 @@ namespace FFXParallelSortKernels
                 0 };
 
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, scanSrc);
             cmdList->SetComputeRootUnorderedAccessView(2, scanDst);
             cmdList->SetComputeRootUnorderedAccessView(3, scanScratch);
@@ -269,7 +269,7 @@ namespace FFXParallelSortKernels
     public:
         FfxPsScatter(
             winrt::com_ptr<ID3D12Device> device,
-            const DeviceInfo& info,
+            const GPUSorting::DeviceInfo& info,
             const std::vector<std::wstring>& compileArguments,
             const std::filesystem::path& shaderPath) :
             ComputeKernelBase(
@@ -306,7 +306,7 @@ namespace FFXParallelSortKernels
                 0 };
 
             SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
+            cmdList->SetComputeRoot32BitConstants(0, (uint32_t)t.size(), t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, srcBuffer);
             cmdList->SetComputeRootUnorderedAccessView(2, srcPayload);
             cmdList->SetComputeRootUnorderedAccessView(3, dstBuffer);

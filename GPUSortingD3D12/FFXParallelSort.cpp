@@ -27,30 +27,30 @@
 
 FFXParallelSort::FFXParallelSort(
 	winrt::com_ptr<ID3D12Device> _device,
-	DeviceInfo _deviceInfo,
-	GPU_SORTING_ORDER sortingOrder,
-	GPU_SORTING_KEY_TYPE keyType) :
+    GPUSorting::DeviceInfo _deviceInfo,
+    GPUSorting::ORDER sortingOrder,
+    GPUSorting::KEY_TYPE keyType) :
     GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
-        GPU_SORTING_KEY_UINT32,
+        GPUSorting::KEY_UINT32,
         "FFXParallelSort ",
         8,
         16,
         1 << 13,
-        TuningParameters{ false, 4, 256, 1024, 0 }),  //Pass in a set of parameters to match FFX
+        GPUSorting::TuningParameters{ false, 4, 256, 1024, 0 }),  //Pass in a set of parameters to match FFX
     k_maxThreadGroupsToRun(1024)
 {
     m_device.copy_from(_device.get());
 
-    if (keyType != GPU_SORTING_KEY_UINT32)
+    if (keyType != GPUSorting::KEY_UINT32)
     {
         printf("\nWarning, FFXParallelSort implementation only supports uint32_t for keys.\n");
         printf("Sort object initialized as uin32_t.\n");
     }
 
-    if (sortingOrder != GPU_SORTING_ASCENDING)
+    if (sortingOrder != GPUSorting::ORDER_ASCENDING)
     {
         printf("\nWarning, FFXParallelSort implementation only supports ascending order sorting.\n");
         printf("Sort object initialized as ascending.\n");
@@ -62,38 +62,38 @@ FFXParallelSort::FFXParallelSort(
 
 FFXParallelSort::FFXParallelSort(
     winrt::com_ptr<ID3D12Device> _device,
-    DeviceInfo _deviceInfo,
-    GPU_SORTING_ORDER sortingOrder,
-    GPU_SORTING_KEY_TYPE keyType,
-    GPU_SORTING_PAYLOAD_TYPE payloadType) :
+    GPUSorting::DeviceInfo _deviceInfo,
+    GPUSorting::ORDER sortingOrder,
+    GPUSorting::KEY_TYPE keyType,
+    GPUSorting::PAYLOAD_TYPE payloadType) :
     GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32,
         "FFXParallelSort ",
         8,
         16,
         1 << 13,
-        TuningParameters{ false, 4, 256, 1024, 0 }),  //Pass in a set of parameters to match FFX
-    k_maxThreadGroupsToRun(1024)
+        GPUSorting::TuningParameters{ false, 4, 256, 1024, 0 }),  //Pass in a set of parameters to match FFX
+    k_maxThreadGroupsToRun(512)
 {
     m_device.copy_from(_device.get());
 
-    if (keyType != GPU_SORTING_KEY_UINT32)
+    if (keyType != GPUSorting::KEY_UINT32)
     {
         printf("\nWarning, FFXParallelSort implementation only supports uint32_t for keys.\n");
         printf("Sort object initialized as uin32_t.\n");
     }
 
-    if (payloadType != GPU_SORTING_PAYLOAD_UINT32)
+    if (payloadType != GPUSorting::PAYLOAD_UINT32)
     {
         printf("\nWarning, FFXParallelSort implementation only supports uint32_t for payloads.\n");
         printf("Sort object initialized as uin32_t.\n");
     }
 
-    if (sortingOrder != GPU_SORTING_ASCENDING)
+    if (sortingOrder != GPUSorting::ORDER_ASCENDING)
     {
         printf("\nWarning, FFXParallelSort implementation only supports ascending order sorting.\n");
         printf("Sort object initialized as ascending.\n");
@@ -111,7 +111,7 @@ void FFXParallelSort::SetCompileArguments()
     m_compileArguments.push_back(L"-DSHOULD_ASCEND");
     m_compileArguments.push_back(L"-DKEY_UINT");
 
-    if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+    if (k_sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
     {
         m_compileArguments.push_back(L"-DFFX_PARALLELSORT_COPY_VALUE");
         m_compileArguments.push_back(L"-DSORT_PAIRS");
@@ -205,7 +205,7 @@ void FFXParallelSort::InitBuffers(const uint32_t numKeys, const uint32_t threadB
         D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-    if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+    if (k_sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
     {
         m_sortPayloadBuffer = CreateBuffer(
             m_device,

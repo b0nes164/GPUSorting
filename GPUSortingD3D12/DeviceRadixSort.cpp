@@ -12,9 +12,9 @@
 
 DeviceRadixSort::DeviceRadixSort(
     winrt::com_ptr<ID3D12Device> _device,
-    DeviceInfo _deviceInfo,
-    GPU_SORTING_ORDER sortingOrder,
-    GPU_SORTING_KEY_TYPE keyType) :
+    GPUSorting::DeviceInfo _deviceInfo,
+    GPUSorting::ORDER sortingOrder,
+    GPUSorting::KEY_TYPE keyType) :
     GPUSortBase(
         _device,
         _deviceInfo,
@@ -32,10 +32,10 @@ DeviceRadixSort::DeviceRadixSort(
 
 DeviceRadixSort::DeviceRadixSort(
     winrt::com_ptr<ID3D12Device> _device,
-    DeviceInfo _deviceInfo,
-    GPU_SORTING_ORDER sortingOrder,
-    GPU_SORTING_KEY_TYPE keyType,
-    GPU_SORTING_PAYLOAD_TYPE payloadType) :
+    GPUSorting::DeviceInfo _deviceInfo,
+    GPUSorting::ORDER sortingOrder,
+    GPUSorting::KEY_TYPE keyType,
+    GPUSorting::PAYLOAD_TYPE payloadType) :
     GPUSortBase(
         _device,
         _deviceInfo,
@@ -194,7 +194,7 @@ void DeviceRadixSort::InitBuffers(const uint32_t numKeys, const uint32_t threadB
         D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-    if (k_sortingConfig.sortingMode == GPU_SORTING_PAIRS)
+    if (k_sortingConfig.sortingMode == GPUSorting::MODE_PAIRS)
     {
         m_sortPayloadBuffer = CreateBuffer(
             m_device,

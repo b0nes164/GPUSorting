@@ -18,7 +18,7 @@ class ComputeKernelBase
 public:
     ComputeKernelBase(
         winrt::com_ptr<ID3D12Device> device, 
-        const DeviceInfo& info,
+        const GPUSorting::DeviceInfo& info,
         const std::filesystem::path& shaderPath,
         const wchar_t* entryPoint,
         const std::vector<std::wstring>& compileArguments,
@@ -57,7 +57,7 @@ protected:
 private:
     std::vector<uint8_t> CompileShader(
         const std::filesystem::path& shaderPath, 
-        const DeviceInfo& info, 
+        const GPUSorting::DeviceInfo& info,
         const wchar_t* entryPoint,
         const std::vector<std::wstring>& arguments)
     {

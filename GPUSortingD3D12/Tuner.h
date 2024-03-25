@@ -634,7 +634,7 @@ namespace Tuner::TunerHelper
 		return adapterTable;
 	}
 
-	static inline TuningParameters GetGenericTuningParameters()
+	static inline GPUSorting::TuningParameters GetGenericTuningParameters()
 	{
 		const bool k_genericShouldLock = false;
 		const uint32_t k_genericKeysPerThread = 15;
@@ -652,12 +652,12 @@ namespace Tuner::TunerHelper
 			k_genericTotalSharedMem };
 	}
 
-	static inline TuningParameters calcKeysTuningParametersNvidia(
+	static inline GPUSorting::TuningParameters calcKeysTuningParametersNvidia(
 		const adapterInfoNvidia& info)
 	{
 		const uint32_t lanesPerWarp = 32;
 
-		TuningParameters tuningParams;
+		GPUSorting::TuningParameters tuningParams;
 		uint32_t keysPerThread = 0;
 		uint32_t threadsPerThreadBlock = 0;
 		bool shouldLock = false;
@@ -702,12 +702,12 @@ namespace Tuner::TunerHelper
 		return tuningParams;
 	}
 
-	static inline TuningParameters calcPairsTuningParametersNvidia(
+	static inline GPUSorting::TuningParameters calcPairsTuningParametersNvidia(
 		const adapterInfoNvidia& info)
 	{
 		const uint32_t lanesPerWarp = 32;
 
-		TuningParameters tuningParams;
+		GPUSorting::TuningParameters tuningParams;
 		uint32_t keysPerThread = 0;
 		uint32_t threadsPerThreadBlock = 0;
 		bool shouldLock = false;
@@ -753,7 +753,7 @@ namespace Tuner::TunerHelper
 
 	//RDNA very straightforward, as there appears to be no 
 	//VGPR or LDS variation between generations.
-	static inline TuningParameters calcKeysTuningParametersRDNA()
+	static inline GPUSorting::TuningParameters calcKeysTuningParametersRDNA()
 	{
 		//We lock the wave size to 32 because we want want WGPs not CUs
 		const bool shouldLockToW32 = true;
@@ -766,7 +766,7 @@ namespace Tuner::TunerHelper
 		const uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
 			histogramSharedMemory : combinedPartSize;
 
-		const TuningParameters tuningParams = {
+		const GPUSorting::TuningParameters tuningParams = {
 			shouldLockToW32,
 			keysPerThread,
 			threadsPerThreadBlock,
@@ -776,7 +776,7 @@ namespace Tuner::TunerHelper
 		return tuningParams;
 	}
 
-	static inline TuningParameters calcPairsTuningParametersRDNA()
+	static inline GPUSorting::TuningParameters calcPairsTuningParametersRDNA()
 	{
 		//We lock the wave size to 32 because we want want WGPs not CUs
 		const bool shouldLockToW32 = true;
@@ -789,7 +789,7 @@ namespace Tuner::TunerHelper
 		const uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
 			histogramSharedMemory : combinedPartSize;
 
-		const TuningParameters tuningParams = {
+		const GPUSorting::TuningParameters tuningParams = {
 			shouldLockToW32,
 			keysPerThread,
 			threadsPerThreadBlock,
@@ -799,17 +799,17 @@ namespace Tuner::TunerHelper
 		return tuningParams;
 	}
 
-	static TuningParameters CalculateTuningParametersNvidia(
-		const DeviceInfo& devInfo,
-		const GPU_SORTING_MODE& gpuSortMode)
+	static GPUSorting::TuningParameters CalculateTuningParametersNvidia(
+		const GPUSorting::DeviceInfo& devInfo,
+		const GPUSorting::MODE& gpuSortMode)
 	{
-		TuningParameters tuningParams;
+		GPUSorting::TuningParameters tuningParams;
 		std::unordered_map<uint32_t, TunerHelper::adapterInfoNvidia> table =
 			TunerHelper::InitializeNvidiaTuningTable();
 		auto result = table.find(devInfo.deviceId);
 		if (result != table.end())
 		{
-			tuningParams = gpuSortMode == GPU_SORTING_KEYS_ONLY ?
+			tuningParams = gpuSortMode == GPUSorting::MODE_KEYS_ONLY ?
 				TunerHelper::calcKeysTuningParametersNvidia(result->second) :
 				TunerHelper::calcPairsTuningParametersNvidia(result->second);
 		}
@@ -824,17 +824,17 @@ namespace Tuner::TunerHelper
 		return tuningParams;
 	}
 
-	static TuningParameters CalculateTuningParametersAMD(
-		const DeviceInfo& devInfo,
-		const GPU_SORTING_MODE& gpuSortMode)
+	static GPUSorting::TuningParameters CalculateTuningParametersAMD(
+		const GPUSorting::DeviceInfo& devInfo,
+		const GPUSorting::MODE& gpuSortMode)
 	{
-		TuningParameters tuningParams;
+		GPUSorting::TuningParameters tuningParams;
 		std::unordered_map<uint32_t, TunerHelper::adapterInfoAmd> table =
 			TunerHelper::InitializeAMDTuningTable();
 		auto result = table.find(devInfo.deviceId);
 		if (result != table.end())
 		{
-			tuningParams = gpuSortMode == GPU_SORTING_KEYS_ONLY ?
+			tuningParams = gpuSortMode == GPUSorting::MODE_KEYS_ONLY ?
 				TunerHelper::calcKeysTuningParametersRDNA() :
 				TunerHelper::calcPairsTuningParametersRDNA();
 		}
@@ -852,11 +852,11 @@ namespace Tuner::TunerHelper
 
 namespace Tuner
 {
-	static inline TuningParameters GetTuningParameters(
-		const DeviceInfo& devInfo,
-		const GPU_SORTING_MODE& gpuSortMode)
+	static inline GPUSorting::TuningParameters GetTuningParameters(
+		const GPUSorting::DeviceInfo& devInfo,
+		const GPUSorting::MODE& gpuSortMode)
 	{
-		TuningParameters tuningParams;
+		GPUSorting::TuningParameters tuningParams;
 		switch (devInfo.vendorId)
 		{
 		case 0x1002:

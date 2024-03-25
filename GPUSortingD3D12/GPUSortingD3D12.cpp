@@ -15,9 +15,9 @@
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 613; }
 extern "C" { __declspec(dllexport) extern const char* D3D12SDKPath = u8".\\D3D12\\"; }
 
-DeviceInfo GetDeviceInfo(ID3D12Device* device)
+GPUSorting::DeviceInfo GetDeviceInfo(ID3D12Device* device)
 {
-    DeviceInfo devInfo = {};
+    GPUSorting::DeviceInfo devInfo = {};
     auto adapterLuid = device->GetAdapterLuid();
     winrt::com_ptr<IDXGIFactory4> factory;
     winrt::check_hresult(CreateDXGIFactory2(0, IID_PPV_ARGS(factory.put())));
@@ -115,36 +115,39 @@ int main()
 {
     winrt::com_ptr<ID3D12Device> device = InitDevice();
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP, you will need NuGet package
-    DeviceInfo deviceInfo = GetDeviceInfo(device.get());
+    GPUSorting::DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    DeviceRadixSort* dvr = new DeviceRadixSort(
+    /*DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32);
-    dvr->TestSort(1 << 28, 10, false, true);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     dvr->TestAll();
-    dvr->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
+    dvr->BatchTiming(1 << 28, 100, 10, GPUSorting::ENTROPY_PRESET_1);
     dvr->~DeviceRadixSort();
 
     OneSweep* oneSweep = new OneSweep(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     oneSweep->TestAll();
-    oneSweep->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
+    oneSweep->BatchTiming(1 << 28, 100, 10, GPUSorting::ENTROPY_PRESET_1);
     oneSweep->~OneSweep();
 
     FFXParallelSort* ffxPs = new FFXParallelSort(
         device,
         deviceInfo,
-        GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32);
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
     ffxPs->TestAll();
-    ffxPs->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
-    ffxPs->~FFXParallelSort();
+    ffxPs->BatchTiming(1 << 25, 100, 10, GPUSorting::ENTROPY_PRESET_1);
+    ffxPs->~FFXParallelSort();*/
 
+    SuperTestDeviceRadixSort(device, deviceInfo);
     //SuperTestOneSweep(device, deviceInfo);            <-Test the complete feature space,
     //SuperTestDeviceRadixSort(device, deviceInfo);     <-this will take a while!
 
