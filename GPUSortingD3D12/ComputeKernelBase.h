@@ -40,6 +40,10 @@ public:
     }
 
 protected:
+    const uint32_t k_isNotPartialBitFlag = 0;
+    const uint32_t k_isPartialBitFlag = 1;
+    const uint32_t k_maxDim = 65535;
+
     //Slightly scuffed, as we cannot forward declare and call the function
     //in the base constructor without breaking things
     virtual const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() = 0;
@@ -48,20 +52,6 @@ protected:
     {
         cmdList->SetPipelineState(m_computePipelineStateDesc.get());
         cmdList->SetComputeRootSignature(m_rootSignature.get());
-    }
-
-    //Because the limit on any dispatch dimension of 65535, 
-    //we expand from x into y when necessary. The value is flattened
-    //as needed within the shader.
-    static inline void ExpandedDispatch(
-        winrt::com_ptr<ID3D12GraphicsCommandList> cmdList,
-        const uint32_t& threadBlocks)
-    {
-        /*cmdList->Dispatch(
-            threadBlocks & 65535,
-            (threadBlocks >> 16) + ((threadBlocks & 65535) ? 1 : 0),
-            1);*/
-        cmdList->Dispatch(threadBlocks, 1, 1);
     }
 
 private:

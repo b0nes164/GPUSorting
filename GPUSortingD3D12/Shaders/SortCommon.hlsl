@@ -44,6 +44,7 @@
 #define D_TOTAL_SMEM        7936U
 #endif
 
+#define MAX_DISPATCH_DIM    65535U  //The max value of any given dispatch dimension
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins
 #define HALF_RADIX          128U    //For smaller waves where bit packing is necessary
@@ -56,7 +57,7 @@ cbuffer cbGpuSorting : register(b0)
     uint e_numKeys;
     uint e_radixShift;
     uint e_threadBlocks;
-    uint padding;
+    uint e_isPartial;
 };
 
 #if defined(KEY_UINT)
@@ -112,6 +113,18 @@ struct DigitStruct
 inline uint getWaveIndex(uint gtid)
 {
     return gtid / WaveGetLaneCount();
+}
+
+inline bool isPartialDispatch()
+{
+    return e_isPartial & 1;
+}
+
+inline uint flattenGid(uint3 gid)
+{
+    return isPartialDispatch() ?
+        gid.x + (e_isPartial >> 1) * MAX_DISPATCH_DIM :
+        gid.x + gid.y * MAX_DISPATCH_DIM;
 }
 
 //Radix Tricks by Michael Herf

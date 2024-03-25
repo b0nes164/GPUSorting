@@ -85,14 +85,39 @@ namespace DeviceRadixSortKernels
             const uint32_t& threadBlocks,
             const uint32_t& radixShift)
         {
+            const uint32_t fullBlocks = threadBlocks / k_maxDim;
+            if (fullBlocks)
+            {
+                std::array<uint32_t, 4> t = { 
+                    numKeys,
+                    radixShift,
+                    threadBlocks,
+                    k_isNotPartialBitFlag };
 
-            std::array<uint32_t, 4> t = { numKeys, radixShift, threadBlocks, 0 };
-            SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
-            cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
-            cmdList->SetComputeRootUnorderedAccessView(3, passHist);
-            ExpandedDispatch(cmdList, threadBlocks);
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
+                cmdList->SetComputeRootUnorderedAccessView(3, passHist);
+                cmdList->Dispatch(k_maxDim, fullBlocks, 1);
+            }
+
+            const uint32_t partialBlocks = threadBlocks - fullBlocks * k_maxDim;
+            if (partialBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                numKeys,
+                radixShift,
+                threadBlocks,
+                fullBlocks << 1 | k_isPartialBitFlag };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
+                cmdList->SetComputeRootUnorderedAccessView(3, passHist);
+                cmdList->Dispatch(partialBlocks, 1, 1);
+            }
         }
 
     protected:
@@ -177,17 +202,47 @@ namespace DeviceRadixSortKernels
             const uint32_t& threadBlocks,
             const uint32_t& radixShift)
         {
-            std::array<uint32_t, 4> t = { numKeys, radixShift, threadBlocks, 0 };
-            SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
-            cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(3, altBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(5, globalHist);
-            cmdList->SetComputeRootUnorderedAccessView(6, passHist);
-            ExpandedDispatch(cmdList, threadBlocks);
+            const uint32_t fullBlocks = threadBlocks / k_maxDim;
+            if (fullBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                    numKeys,
+                    radixShift,
+                    threadBlocks,
+                    k_isNotPartialBitFlag };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, altBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(5, globalHist);
+                cmdList->SetComputeRootUnorderedAccessView(6, passHist);
+                cmdList->Dispatch(k_maxDim, fullBlocks, 1);
+            }
+
+            const uint32_t partialBlocks = threadBlocks - fullBlocks * k_maxDim;
+            if (partialBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                numKeys,
+                radixShift,
+                threadBlocks,
+                fullBlocks << 1 | k_isPartialBitFlag };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, altBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(5, globalHist);
+                cmdList->SetComputeRootUnorderedAccessView(6, passHist);
+                cmdList->Dispatch(partialBlocks, 1, 1);
+            }
         }
+
     protected:
         const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
         {

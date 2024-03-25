@@ -7,8 +7,9 @@
  * 
  ******************************************************************************/
 
-#define VAL_PART_SIZE   2048
-#define VAL_THREADS     256
+#define MAX_DISPATCH_DIM    65535U
+#define VAL_PART_SIZE       2048U
+#define VAL_THREADS         256U
 
 #if defined(KEY_UINT)
 RWStructuredBuffer<uint> b_sort         : register(u0);
@@ -33,7 +34,7 @@ cbuffer cbParallelSort : register(b0)
 {
     uint e_numKeys;
     uint e_threadBlocks;
-    uint e_seed;
+    uint e_misc;            //used either as a seed value, or partial flag
     uint e_andCount;
 };
 
@@ -78,10 +79,10 @@ void InitSortInput(int3 id : SV_DispatchThreadID)
     const uint numKeys = e_numKeys;
     const uint inc = VAL_THREADS * 256;
     const uint _andCount = e_andCount;
-    uint z1 = (id.x << 2) * e_seed;
-    uint z2 = ((id.x << 2) + 1) * e_seed;
-    uint z3 = ((id.x << 2) + 2) * e_seed;
-    uint z4 = ((id.x << 2) + 3) * e_seed;
+    uint z1 = (id.x << 2) * e_misc;
+    uint z2 = ((id.x << 2) + 1) * e_misc;
+    uint z3 = ((id.x << 2) + 2) * e_misc;
+    uint z4 = ((id.x << 2) + 3) * e_misc;
     
     for (uint i = id.x; i < numKeys; i += inc)
     {
@@ -115,6 +116,18 @@ void InitSortInput(int3 id : SV_DispatchThreadID)
     }
 }
 
+inline bool isPartialDispatch()
+{
+    return e_misc & 1;
+}
+
+inline uint flattenGid(uint3 gid)
+{
+    return isPartialDispatch() ?
+        gid.x + (e_misc >> 1) * MAX_DISPATCH_DIM :
+        gid.x + gid.y * MAX_DISPATCH_DIM;
+}
+
 //Used to standalone test the scan kernel, assumes threadblocks = 1
 //Scan values so small its not a huge time cost to check on the CPU
 [numthreads(VAL_THREADS, 1, 1)]
@@ -132,12 +145,12 @@ void ClearErrorCount(int3 id : SV_DispatchThreadID)
 
 //Assuming values are identical to keys, payloads must also be in sorted order
 [numthreads(VAL_THREADS, 1, 1)]
-void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
+void Validate(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
     if (gid.x < e_threadBlocks - 1)
     {
         const uint t = gid.x * VAL_PART_SIZE;
-        for (int i = gtid.x; i < VAL_PART_SIZE + 1; i += VAL_THREADS)
+        for (uint i = gtid.x; i < VAL_PART_SIZE + 1; i += VAL_THREADS)
         {
 #if defined(KEY_UINT) || defined (KEY_INT) || defined (KEY_FLOAT)
             g_val[i] = b_sort[i + t];
@@ -149,7 +162,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
         GroupMemoryBarrierWithGroupSync();
         
         //Reinterpret the payload to match the type of the key it was sorted on
-        for (int i = gtid.x; i < VAL_PART_SIZE; i += VAL_THREADS)
+        for (uint i = gtid.x; i < VAL_PART_SIZE; i += VAL_THREADS)
         {
             uint isInvalid = 0;
 #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)
@@ -183,7 +196,7 @@ void Validate(int3 gtid : SV_GroupThreadID, int3 gid : SV_GroupID)
     }
     else
     {
-        for (int i = gtid.x + gid.x * VAL_PART_SIZE; i < e_numKeys - 1; i += VAL_THREADS)
+        for (uint i = gtid.x + gid.x * VAL_PART_SIZE; i < e_numKeys - 1; i += VAL_THREADS)
         {
             uint isInvalid = 0;     
 #if defined(KEY_UINT) || defined(KEY_INT) || defined(KEY_FLOAT)

@@ -130,13 +130,39 @@ namespace UtilityKernels
             const uint32_t& numKeys)
         {
             uint32_t valThreadBlocks = (numKeys + k_valPartSize - 1) / k_valPartSize;
-            std::array<uint32_t, 4> t = { numKeys, valThreadBlocks, 0, 0 };
-            SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
-            cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(3, errorCount);
-            ExpandedDispatch(cmdList, valThreadBlocks);
+            const uint32_t fullBlocks = valThreadBlocks / k_maxDim;
+            if (fullBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                    numKeys,
+                    valThreadBlocks,
+                    k_isNotPartialBitFlag,
+                    0, };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, errorCount);
+                cmdList->Dispatch(k_maxDim, fullBlocks, 1);
+            }
+            
+            const uint32_t partialBlocks = valThreadBlocks - fullBlocks * k_maxDim;
+            if (partialBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                    numKeys,
+                    valThreadBlocks,
+                    fullBlocks << 1 | k_isPartialBitFlag,
+                    0, };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, errorCount);
+                cmdList->Dispatch(partialBlocks, 1, 1);
+            }
         }
 
     protected:

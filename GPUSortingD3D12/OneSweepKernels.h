@@ -9,6 +9,7 @@
 #pragma once
 #include "pch.h"
 #include "ComputeKernelBase.h"
+#include "Utils.h"
 
 namespace OneSweepKernels
 {
@@ -94,12 +95,37 @@ namespace OneSweepKernels
             const uint32_t& numKeys,
             const uint32_t& threadBlocks)
         {
-            std::array<uint32_t, 4> t = { numKeys, 0, threadBlocks, 0 };
-            SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
-            cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
-            ExpandedDispatch(cmdList, threadBlocks);
+            const uint32_t fullBlocks = threadBlocks / k_maxDim;
+            if (fullBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                    numKeys,
+                    0,
+                    threadBlocks,
+                    k_isNotPartialBitFlag };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
+                cmdList->Dispatch(k_maxDim, fullBlocks, 1);
+            }
+
+            const uint32_t partialBlocks = threadBlocks - fullBlocks * k_maxDim;
+            if (partialBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                numKeys,
+                0,
+                threadBlocks,
+                fullBlocks << 1 | k_isPartialBitFlag };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, globalHist);
+                cmdList->Dispatch(partialBlocks, 1, 1);
+            }
         }
 
     protected:
@@ -181,22 +207,58 @@ namespace OneSweepKernels
             const D3D12_GPU_VIRTUAL_ADDRESS& altBuffer,
             const D3D12_GPU_VIRTUAL_ADDRESS& sortPayloadBuffer,
             const D3D12_GPU_VIRTUAL_ADDRESS& altPayloadBuffer,
-            const D3D12_GPU_VIRTUAL_ADDRESS& passHist,
             const D3D12_GPU_VIRTUAL_ADDRESS& index,
+            winrt::com_ptr<ID3D12Resource> passHist,
             const uint32_t& numKeys,
             const uint32_t& threadBlocks,
             const uint32_t& radixShift)
         {
-            std::array<uint32_t, 4> t = { numKeys, radixShift, threadBlocks, 0 };
-            SetPipelineState(cmdList);
-            cmdList->SetComputeRoot32BitConstants(0, 4, t.data(), 0);
-            cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(2, altBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(3, sortPayloadBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
-            cmdList->SetComputeRootUnorderedAccessView(5, passHist);
-            cmdList->SetComputeRootUnorderedAccessView(6, index);
-            ExpandedDispatch(cmdList, threadBlocks);
+            const uint32_t fullBlocks = threadBlocks / k_maxDim;
+
+            //Setting the partition flag here is unnecessary, because
+            //we atomically assign partition tiles
+            if (fullBlocks)
+            {
+                std::array<uint32_t, 4> t = { 
+                    numKeys,
+                    radixShift,
+                    threadBlocks,
+                    0 };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, altBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(5, passHist->GetGPUVirtualAddress());
+                cmdList->SetComputeRootUnorderedAccessView(6, index);
+                cmdList->Dispatch(k_maxDim, fullBlocks, 1);
+
+                //To be absolutely safe, add a barrier here on the pass histogram
+                //As threadblocks in the second dispatch are dependent on the first dispatch
+                UAVBarrierSingle(cmdList, passHist);
+            }
+
+            const uint32_t partialBlocks = threadBlocks - fullBlocks * k_maxDim;
+            if (partialBlocks)
+            {
+                std::array<uint32_t, 4> t = {
+                    numKeys,
+                    radixShift,
+                    threadBlocks,
+                    0 };
+
+                SetPipelineState(cmdList);
+                cmdList->SetComputeRoot32BitConstants(0, t.size(), t.data(), 0);
+                cmdList->SetComputeRootUnorderedAccessView(1, sortBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(2, altBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(3, sortPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(4, altPayloadBuffer);
+                cmdList->SetComputeRootUnorderedAccessView(5, passHist->GetGPUVirtualAddress());
+                cmdList->SetComputeRootUnorderedAccessView(6, index);
+                cmdList->Dispatch(partialBlocks, 1, 1);
+            }
         }
 
     protected:

@@ -49,6 +49,7 @@ inline uint PassHistOffset(uint index)
     return ((CurrentPass() * e_threadBlocks) + index) << RADIX_LOG;
 }
 
+//Init does not require flattening
 [numthreads(256, 1, 1)]
 void InitOneSweep(uint3 id : SV_DispatchThreadID)
 {
@@ -112,7 +113,7 @@ void GlobalHistogram(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         g_gHist[i] = 0;
     GroupMemoryBarrierWithGroupSync();
     
-    HistogramDigitCounts(gtid.x, gid.x);
+    HistogramDigitCounts(gtid.x, flattenGid(gid));
     GroupMemoryBarrierWithGroupSync();
     
     ReduceWriteDigitCounts(gtid.x);
@@ -199,6 +200,7 @@ inline void GlobalHistExclusiveScanWLT16(uint gtid, uint gid)
     }
 }
 
+//Scan does not require flattening
 [numthreads(RADIX, 1, 1)]
 void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
@@ -272,6 +274,7 @@ inline void Lookback(uint gtid, uint partIndex, uint exclusiveHistReduction)
     }
 }
 
+//DigitBinningPass does not require flattening
 //Lock RDNA to 32, we want WGP's not CU's
 #if defined(LOCK_TO_W32)
 [WaveSize(32)]

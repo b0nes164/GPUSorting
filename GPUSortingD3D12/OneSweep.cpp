@@ -10,7 +10,6 @@
 #include "pch.h"
 #include "OneSweep.h"
 
-
 OneSweep::OneSweep(
     winrt::com_ptr<ID3D12Device> _device,
     DeviceInfo _deviceInfo,
@@ -219,8 +218,8 @@ void OneSweep::PrepareSortCmdList()
             m_altBuffer->GetGPUVirtualAddress(),
             m_sortPayloadBuffer->GetGPUVirtualAddress(),
             m_altPayloadBuffer->GetGPUVirtualAddress(),
-            m_passHistBuffer->GetGPUVirtualAddress(),
             m_indexBuffer->GetGPUVirtualAddress(),
+            m_passHistBuffer,
             m_numKeys,
             m_partitions,
             radixShift);

@@ -24,11 +24,6 @@ RWStructuredBuffer<uint> b_passHist     : register(u5); //buffer used to store r
 groupshared uint g_us[RADIX * 2];   //Shared memory for upsweep
 groupshared uint g_scan[SCAN_DIM];  //Shared memory for the scan
 
-inline uint flattenGid(uint3 gid)
-{
-    return gid.x;
-}
-
 //*****************************************************************************
 //INIT KERNEL
 //*****************************************************************************
