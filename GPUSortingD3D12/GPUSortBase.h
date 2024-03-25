@@ -12,7 +12,7 @@
 #include "UtilityKernels.h"
 #include "Tuner.h"
 
-class GPUSorter
+class GPUSortBase
 {
 protected:
     const char* k_sortName;
@@ -47,13 +47,13 @@ protected:
     winrt::com_ptr<ID3D12Resource> m_errorCountBuffer;
     winrt::com_ptr<ID3D12Resource> m_readBackBuffer;
 
-    InitSortInput* m_initSortInput;
-    ClearErrorCount* m_clearErrorCount;
-    Validate* m_validate;
+    UtilityKernels::InitSortInput* m_initSortInput;
+    UtilityKernels::ClearErrorCount* m_clearErrorCount;
+    UtilityKernels::Validate* m_validate;
 
     //Keys only
     //chain constructors to allow passing in manual tuning params
-    GPUSorter(
+    GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
         DeviceInfo _deviceInfo,
         GPU_SORTING_ORDER sortingOrder,
@@ -73,7 +73,7 @@ protected:
     {
     };
 
-    GPUSorter(
+    GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
         DeviceInfo _deviceInfo,
         GPU_SORTING_ORDER sortingOrder,
@@ -82,7 +82,7 @@ protected:
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack) :
-        GPUSorter(
+        GPUSortBase(
             _device,
             _deviceInfo,
             sortingOrder,
@@ -96,7 +96,7 @@ protected:
     };
 
     //Pairs
-    GPUSorter(
+    GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
         DeviceInfo _deviceInfo,
         GPU_SORTING_ORDER sortingOrder,
@@ -117,7 +117,7 @@ protected:
     { 
     };
 
-    GPUSorter(
+    GPUSortBase(
         winrt::com_ptr<ID3D12Device> _device,
         DeviceInfo _deviceInfo,
         GPU_SORTING_ORDER sortingOrder,
@@ -127,7 +127,7 @@ protected:
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack) :
-        GPUSorter(
+        GPUSortBase(
             _device,
             _deviceInfo,
             sortingOrder,
@@ -141,7 +141,7 @@ protected:
     {
     };
 
-    ~GPUSorter()
+    ~GPUSortBase()
     {
     };
 
@@ -374,8 +374,29 @@ protected:
 #endif
     }
 
+    virtual void InitUtilityComputeShaders()
+    {
+        const std::filesystem::path path = "Shaders/Utility.hlsl";
+        m_initSortInput = new UtilityKernels::InitSortInput(m_device, m_devInfo, m_compileArguments, path);
+        m_clearErrorCount = new UtilityKernels::ClearErrorCount(m_device, m_devInfo, m_compileArguments, path);
+        m_validate = new UtilityKernels::Validate(m_device, m_devInfo, m_compileArguments, path);
+    }
+
+    virtual void InitComputeShaders() = 0;
+
+    virtual void UpdateSize(uint32_t size) = 0;
+
+    virtual void DisposeBuffers() = 0;
+
+    virtual void InitStaticBuffers() = 0;
+
+    virtual void InitBuffers(
+        const uint32_t numKeys,
+        const uint32_t threadBlocks) = 0;
+
     void Initialize()
     {
+        InitUtilityComputeShaders();
         InitComputeShaders();
 
         D3D12_COMMAND_QUEUE_DESC desc{};
@@ -396,18 +417,6 @@ protected:
 
         InitStaticBuffers();
     }
-
-    virtual void InitComputeShaders() = 0;
-
-    virtual void UpdateSize(uint32_t size) = 0;
-
-    virtual void DisposeBuffers() = 0;
-
-    virtual void InitStaticBuffers() = 0;
-
-    virtual void InitBuffers(
-        const uint32_t numKeys,
-        const uint32_t threadBlocks) = 0;
 
     void CreateTestInput(uint32_t seed)
     {

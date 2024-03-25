@@ -24,7 +24,7 @@
  ******************************************************************************/
 #pragma once
 #include "pch.h"
-#include "ComputeShader.h"
+#include "ComputeKernelBase.h"
 
 namespace FFXParallelSortKernels
 {
@@ -41,33 +41,28 @@ namespace FFXParallelSortKernels
         ScanScratch = 8,
     };
 
-    class FfxPsCount
+    class FfxPsCount : public ComputeKernelBase
     {
-        ComputeShader* shader;
     public:
         FfxPsCount(
             winrt::com_ptr<ID3D12Device> device,
-            DeviceInfo const& info,
-            std::vector<std::wstring> compileArguments)
-        {
-            auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
-            rootParameters[0].InitAsConstants(8, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::SrcBuffer);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::SumTable);
-
-            shader = new ComputeShader(
+            const DeviceInfo& info,
+            const std::vector<std::wstring>& compileArguments,
+            const std::filesystem::path& shaderPath) :
+            ComputeKernelBase(
                 device,
                 info,
-                "Shaders/FFXParallelSort.hlsl",
+                shaderPath,
                 L"FPS_Count",
                 compileArguments,
-                rootParameters);
+                CreateRootParameters())
+        {
         }
 
         void Dispatch(
             winrt::com_ptr<ID3D12GraphicsCommandList> cmdList,
-            D3D12_GPU_VIRTUAL_ADDRESS srcBuffer,
-            D3D12_GPU_VIRTUAL_ADDRESS sumTable,
+            const D3D12_GPU_VIRTUAL_ADDRESS& srcBuffer,
+            const D3D12_GPU_VIRTUAL_ADDRESS& sumTable,
             const uint32_t& numKeys,
             const uint32_t& numThreadGroups,
             const uint32_t& numBlocksPerThreadGroup,
@@ -84,35 +79,40 @@ namespace FFXParallelSortKernels
                 radixShift,
                 0 };
 
-            shader->SetPipelineState(cmdList);
+            SetPipelineState(cmdList);
             cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, srcBuffer);
             cmdList->SetComputeRootUnorderedAccessView(2, sumTable);
             cmdList->Dispatch(numThreadGroups, 1, 1);
         }
+
+    protected:
+        const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
+        {
+            auto rootParams = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
+            rootParams[0].InitAsConstants(8, 0);
+            rootParams[1].InitAsUnorderedAccessView((UINT)Reg::SrcBuffer);
+            rootParams[2].InitAsUnorderedAccessView((UINT)Reg::SumTable);
+            return rootParams;
+        }
     };
 
-    class FfxPsCountReduce
+    class FfxPsCountReduce : public ComputeKernelBase
     {
-        ComputeShader* shader;
     public:
         FfxPsCountReduce(
             winrt::com_ptr<ID3D12Device> device,
-            DeviceInfo const& info,
-            std::vector<std::wstring> compileArguments)
-        {
-            auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
-            rootParameters[0].InitAsConstants(8, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::SumTable);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::ReduceTable);
-
-            shader = new ComputeShader(
+            const DeviceInfo& info,
+            const std::vector<std::wstring>& compileArguments,
+            const std::filesystem::path& shaderPath) :
+            ComputeKernelBase(
                 device,
                 info,
-                "Shaders/FFXParallelSort.hlsl",
+                shaderPath,
                 L"FPS_CountReduce",
                 compileArguments,
-                rootParameters);
+                CreateRootParameters())
+        {
         }
 
         void Dispatch(
@@ -133,36 +133,40 @@ namespace FFXParallelSortKernels
                 0,
                 0 };
 
-            shader->SetPipelineState(cmdList);
+            SetPipelineState(cmdList);
             cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, sumTable);
             cmdList->SetComputeRootUnorderedAccessView(2, reduceTable);
             cmdList->Dispatch(numScanValues, 1, 1);
         }
+
+    protected:
+        const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
+        {
+            auto rootParams = std::vector<CD3DX12_ROOT_PARAMETER1>(3);
+            rootParams[0].InitAsConstants(8, 0);
+            rootParams[1].InitAsUnorderedAccessView((UINT)Reg::SumTable);
+            rootParams[2].InitAsUnorderedAccessView((UINT)Reg::ReduceTable);
+            return rootParams;
+        }
     };
 
-    class FfxPsScan
+    class FfxPsScan : public ComputeKernelBase
     {
-        ComputeShader* shader;
     public:
         FfxPsScan(
             winrt::com_ptr<ID3D12Device> device,
-            DeviceInfo const& info,
-            std::vector<std::wstring> compileArguments)
-        {
-            auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(4);
-            rootParameters[0].InitAsConstants(8, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::ScanSrc);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::ScanDst);
-            rootParameters[3].InitAsUnorderedAccessView((UINT)Reg::ScanScratch);
-
-            shader = new ComputeShader(
+            const DeviceInfo& info,
+            const std::vector<std::wstring>& compileArguments,
+            const std::filesystem::path& shaderPath) :
+            ComputeKernelBase(
                 device,
                 info,
-                "Shaders/FFXParallelSort.hlsl",
+                shaderPath,
                 L"FPS_Scan",
                 compileArguments,
-                rootParameters);
+                CreateRootParameters())
+        {
         }
 
         void Dispatch(
@@ -183,37 +187,42 @@ namespace FFXParallelSortKernels
                 0,
                 0 };
 
-            shader->SetPipelineState(cmdList);
+            SetPipelineState(cmdList);
             cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, scanSrc);
             cmdList->SetComputeRootUnorderedAccessView(2, scanDst);
             cmdList->SetComputeRootUnorderedAccessView(3, scanScratch);
             cmdList->Dispatch(numThreadGroups, 1, 1);
         }
+
+    protected:
+        const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
+        {
+            auto rootParams = std::vector<CD3DX12_ROOT_PARAMETER1>(4);
+            rootParams[0].InitAsConstants(8, 0);
+            rootParams[1].InitAsUnorderedAccessView((UINT)Reg::ScanSrc);
+            rootParams[2].InitAsUnorderedAccessView((UINT)Reg::ScanDst);
+            rootParams[3].InitAsUnorderedAccessView((UINT)Reg::ScanScratch);
+            return rootParams;
+        }
     };
 
-    class FfxPsScanAdd
+    class FfxPsScanAdd : public ComputeKernelBase
     {
-        ComputeShader* shader;
     public:
         FfxPsScanAdd(
             winrt::com_ptr<ID3D12Device> device,
-            DeviceInfo const& info,
-            std::vector<std::wstring> compileArguments)
-        {
-            auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(4);
-            rootParameters[0].InitAsConstants(8, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::ScanSrc);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::ScanDst);
-            rootParameters[3].InitAsUnorderedAccessView((UINT)Reg::ScanScratch);
-
-            shader = new ComputeShader(
+            const DeviceInfo& info,
+            const std::vector<std::wstring>& compileArguments,
+            const std::filesystem::path& shaderPath) :
+            ComputeKernelBase(
                 device,
                 info,
-                "Shaders/FFXParallelSort.hlsl",
+                shaderPath,
                 L"FPS_ScanAdd",
                 compileArguments,
-                rootParameters);
+                CreateRootParameters())
+        {
         }
 
         void Dispatch(
@@ -235,39 +244,42 @@ namespace FFXParallelSortKernels
                 0,
                 0 };
 
-            shader->SetPipelineState(cmdList);
+            SetPipelineState(cmdList);
             cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, scanSrc);
             cmdList->SetComputeRootUnorderedAccessView(2, scanDst);
             cmdList->SetComputeRootUnorderedAccessView(3, scanScratch);
             cmdList->Dispatch(numScanValues, 1, 1);
         }
+
+    protected:
+        const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
+        {
+            auto rootParams = std::vector<CD3DX12_ROOT_PARAMETER1>(4);
+            rootParams[0].InitAsConstants(8, 0);
+            rootParams[1].InitAsUnorderedAccessView((UINT)Reg::ScanSrc);
+            rootParams[2].InitAsUnorderedAccessView((UINT)Reg::ScanDst);
+            rootParams[3].InitAsUnorderedAccessView((UINT)Reg::ScanScratch);
+            return rootParams;
+        }
     };
 
-    class FfxPsScatter
+    class FfxPsScatter : public ComputeKernelBase
     {
-        ComputeShader* shader;
     public:
         FfxPsScatter(
             winrt::com_ptr<ID3D12Device> device,
-            DeviceInfo const& info,
-            std::vector<std::wstring> compileArguments)
-        {
-            auto rootParameters = std::vector<CD3DX12_ROOT_PARAMETER1>(6);
-            rootParameters[0].InitAsConstants(8, 0);
-            rootParameters[1].InitAsUnorderedAccessView((UINT)Reg::SrcBuffer);
-            rootParameters[2].InitAsUnorderedAccessView((UINT)Reg::SrcPayload);
-            rootParameters[3].InitAsUnorderedAccessView((UINT)Reg::DstBuffer);
-            rootParameters[4].InitAsUnorderedAccessView((UINT)Reg::DstPayload);
-            rootParameters[5].InitAsUnorderedAccessView((UINT)Reg::SumTable);
-
-            shader = new ComputeShader(
+            const DeviceInfo& info,
+            const std::vector<std::wstring>& compileArguments,
+            const std::filesystem::path& shaderPath) :
+            ComputeKernelBase(
                 device,
                 info,
-                "Shaders/FFXParallelSort.hlsl",
+                shaderPath,
                 L"FPS_Scatter",
                 compileArguments,
-                rootParameters);
+                CreateRootParameters())
+        {
         }
 
         void Dispatch(
@@ -293,7 +305,7 @@ namespace FFXParallelSortKernels
                 radixShift,
                 0 };
 
-            shader->SetPipelineState(cmdList);
+            SetPipelineState(cmdList);
             cmdList->SetComputeRoot32BitConstants(0, 8, t.data(), 0);
             cmdList->SetComputeRootUnorderedAccessView(1, srcBuffer);
             cmdList->SetComputeRootUnorderedAccessView(2, srcPayload);
@@ -301,6 +313,18 @@ namespace FFXParallelSortKernels
             cmdList->SetComputeRootUnorderedAccessView(4, dstPayload);
             cmdList->SetComputeRootUnorderedAccessView(5, sumTable);
             cmdList->Dispatch(numThreadGroups, 1, 1);
+        }
+    protected:
+        const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() override
+        {
+            auto rootParams = std::vector<CD3DX12_ROOT_PARAMETER1>(6);
+            rootParams[0].InitAsConstants(8, 0);
+            rootParams[1].InitAsUnorderedAccessView((UINT)Reg::SrcBuffer);
+            rootParams[2].InitAsUnorderedAccessView((UINT)Reg::SrcPayload);
+            rootParams[3].InitAsUnorderedAccessView((UINT)Reg::DstBuffer);
+            rootParams[4].InitAsUnorderedAccessView((UINT)Reg::DstPayload);
+            rootParams[5].InitAsUnorderedAccessView((UINT)Reg::SumTable);
+            return rootParams;
         }
     };
 }

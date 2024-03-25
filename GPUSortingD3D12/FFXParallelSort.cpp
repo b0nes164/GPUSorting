@@ -30,7 +30,7 @@ FFXParallelSort::FFXParallelSort(
 	DeviceInfo _deviceInfo,
 	GPU_SORTING_ORDER sortingOrder,
 	GPU_SORTING_KEY_TYPE keyType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -66,7 +66,7 @@ FFXParallelSort::FFXParallelSort(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -126,15 +126,12 @@ void FFXParallelSort::SetCompileArguments()
 
 void FFXParallelSort::InitComputeShaders()
 {
-    m_psCount = new FFXParallelSortKernels::FfxPsCount(m_device, m_devInfo, m_compileArguments);
-    m_psCountReduce = new FFXParallelSortKernels::FfxPsCountReduce(m_device, m_devInfo, m_compileArguments);
-    m_psScan = new FFXParallelSortKernels::FfxPsScan(m_device, m_devInfo, m_compileArguments);
-    m_psScanAdd = new FFXParallelSortKernels::FfxPsScanAdd(m_device, m_devInfo, m_compileArguments);
-    m_psScatter = new FFXParallelSortKernels::FfxPsScatter(m_device, m_devInfo, m_compileArguments);
-
-    m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
-    m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
+    const std::filesystem::path path = "Shaders/FFXParallelSort.hlsl";
+    m_psCount = new FFXParallelSortKernels::FfxPsCount(m_device, m_devInfo, m_compileArguments, path);
+    m_psCountReduce = new FFXParallelSortKernels::FfxPsCountReduce(m_device, m_devInfo, m_compileArguments, path);
+    m_psScan = new FFXParallelSortKernels::FfxPsScan(m_device, m_devInfo, m_compileArguments, path);
+    m_psScanAdd = new FFXParallelSortKernels::FfxPsScanAdd(m_device, m_devInfo, m_compileArguments, path);
+    m_psScatter = new FFXParallelSortKernels::FfxPsScatter(m_device, m_devInfo, m_compileArguments, path);
 }
 
 void FFXParallelSort::UpdateSize(uint32_t size)

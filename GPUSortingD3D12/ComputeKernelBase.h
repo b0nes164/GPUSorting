@@ -10,28 +10,39 @@
 #include "pch.h"
 #include "GPUsorting.h"
 
-class ComputeShader
+class ComputeKernelBase
 {
-public:
-    ComputeShader(
-        winrt::com_ptr<ID3D12Device> device, 
-        DeviceInfo const& info,
-        std::filesystem::path const& shaderPath,
-        const wchar_t* entryPoint,
-        std::vector<std::wstring>& compileArguments,
-        std::vector<CD3DX12_ROOT_PARAMETER1> rootParameters)
-    {
-        auto byteCode = CompileShader(shaderPath, info, entryPoint,
-            compileArguments);
-        m_rootSignature = CreateRootSignature(device, rootParameters);
+    winrt::com_ptr<ID3D12RootSignature> m_rootSignature;
+    winrt::com_ptr<ID3D12PipelineState> m_computePipelineStateDesc;
 
-        D3D12_COMPUTE_PIPELINE_STATE_DESC pipelineDesc{};
-        pipelineDesc.pRootSignature = m_rootSignature.get();
-        pipelineDesc.CS.pShaderBytecode = byteCode.data();
-        pipelineDesc.CS.BytecodeLength = byteCode.size();
-        winrt::check_hresult(device->CreateComputePipelineState(
-            &pipelineDesc, IID_PPV_ARGS(m_computePipelineStateDesc.put())));
+public:
+    ComputeKernelBase(
+        winrt::com_ptr<ID3D12Device> device, 
+        const DeviceInfo& info,
+        const std::filesystem::path& shaderPath,
+        const wchar_t* entryPoint,
+        const std::vector<std::wstring>& compileArguments,
+        const std::vector<CD3DX12_ROOT_PARAMETER1>& rootParams)
+    {
+        auto byteCode = CompileShader(
+            shaderPath,
+            info,
+            entryPoint,
+            compileArguments);
+
+        CreateRootSignature(
+            device, 
+            rootParams);
+
+        CreatePipelineStateDesc(
+            device,
+            byteCode);
     }
+
+protected:
+    //Slightly scuffed, as we cannot forward declare and call the function
+    //in the base constructor without breaking things
+    virtual const std::vector<CD3DX12_ROOT_PARAMETER1> CreateRootParameters() = 0;
 
     void SetPipelineState(winrt::com_ptr<ID3D12GraphicsCommandList> cmdList)
     {
@@ -39,15 +50,26 @@ public:
         cmdList->SetComputeRootSignature(m_rootSignature.get());
     }
 
-private:
-    winrt::com_ptr<ID3D12RootSignature> m_rootSignature;
-    winrt::com_ptr<ID3D12PipelineState> m_computePipelineStateDesc;
+    //Because the limit on any dispatch dimension of 65535, 
+    //we expand from x into y when necessary. The value is flattened
+    //as needed within the shader.
+    static inline void ExpandedDispatch(
+        winrt::com_ptr<ID3D12GraphicsCommandList> cmdList,
+        const uint32_t& threadBlocks)
+    {
+        /*cmdList->Dispatch(
+            threadBlocks & 65535,
+            (threadBlocks >> 16) + ((threadBlocks & 65535) ? 1 : 0),
+            1);*/
+        cmdList->Dispatch(threadBlocks, 1, 1);
+    }
 
+private:
     std::vector<uint8_t> CompileShader(
-        std::filesystem::path const& shaderPath, 
-        DeviceInfo const& info, 
+        const std::filesystem::path& shaderPath, 
+        const DeviceInfo& info, 
         const wchar_t* entryPoint,
-        std::vector<std::wstring>& arguments)
+        const std::vector<std::wstring>& arguments)
     {
         winrt::com_ptr<IDxcUtils> utils;
         winrt::check_hresult(DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(utils.put())));
@@ -103,15 +125,14 @@ private:
         return byteCode;
     }
 
-    winrt::com_ptr<ID3D12RootSignature> CreateRootSignature(
+    void CreateRootSignature(
         winrt::com_ptr<ID3D12Device> device,
-        std::vector<CD3DX12_ROOT_PARAMETER1> rootParameters)
+        const std::vector<CD3DX12_ROOT_PARAMETER1>& rootParams)
     {
-        winrt::com_ptr<ID3D12RootSignature> rootSignature;
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC computeRootSignatureDesc;
         computeRootSignatureDesc.Init_1_1(
-            static_cast<uint32_t>(rootParameters.size()),
-            rootParameters.data(), 0, nullptr);
+            static_cast<uint32_t>(rootParams.size()),
+            rootParams.data(), 0, nullptr);
 
         winrt::com_ptr<ID3DBlob> signature;
         winrt::check_hresult(D3DX12SerializeVersionedRootSignature(
@@ -124,7 +145,18 @@ private:
             0,
             signature->GetBufferPointer(),
             signature->GetBufferSize(),
-            IID_PPV_ARGS(rootSignature.put())));
-        return rootSignature;
+            IID_PPV_ARGS(m_rootSignature.put())));
+    }
+
+    void CreatePipelineStateDesc(
+        winrt::com_ptr<ID3D12Device> device,
+        const std::vector<uint8_t>& byteCode)
+    {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipelineDesc{};
+        pipelineDesc.pRootSignature = m_rootSignature.get();
+        pipelineDesc.CS.pShaderBytecode = byteCode.data();
+        pipelineDesc.CS.BytecodeLength = byteCode.size();
+        winrt::check_hresult(device->CreateComputePipelineState(
+            &pipelineDesc, IID_PPV_ARGS(m_computePipelineStateDesc.put())));
     }
 };

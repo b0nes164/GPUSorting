@@ -9,10 +9,10 @@
 #pragma once
 #include "pch.h"
 #include "GPUSorting.h"
-#include "GPUSorter.h"
+#include "GPUSortBase.h"
 #include "DeviceRadixSortKernels.h"
 
-class DeviceRadixSort : public GPUSorter
+class DeviceRadixSort : public GPUSortBase
 {
     winrt::com_ptr<ID3D12Resource> m_passHistBuffer;
     winrt::com_ptr<ID3D12Resource> m_globalHistBuffer;
@@ -21,7 +21,7 @@ class DeviceRadixSort : public GPUSorter
     DeviceRadixSortKernels::Upsweep* m_upsweep;
     DeviceRadixSortKernels::Scan* m_scan;
     DeviceRadixSortKernels::Downsweep* m_downsweep;
-    InitScanTestValues* m_initScanTestValues;
+    UtilityKernels::InitScanTestValues* m_initScanTestValues;
 
 public:
     DeviceRadixSort(
@@ -42,6 +42,8 @@ public:
     bool TestAll() override;
 
 protected:
+    void InitUtilityComputeShaders() override;
+
     void InitComputeShaders() override;
 
     void UpdateSize(uint32_t size) override;

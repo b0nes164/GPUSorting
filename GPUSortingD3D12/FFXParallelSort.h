@@ -25,10 +25,10 @@
 #pragma once
 #include "pch.h"
 #include "GPUSorting.h"
-#include "GPUSorter.h"
+#include "GPUSortBase.h"
 #include "FFXParallelSortKernels.h"
 
-class FFXParallelSort : public GPUSorter
+class FFXParallelSort : public GPUSortBase
 {
     uint32_t m_numReduceBlocks;
 

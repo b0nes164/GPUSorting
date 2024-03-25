@@ -178,12 +178,12 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ComputeShader.h" />
+    <ClInclude Include="ComputeKernelBase.h" />
     <ClInclude Include="DeviceRadixSort.h" />
     <ClInclude Include="DeviceRadixSortKernels.h" />
     <ClInclude Include="FFXParallelSort.h" />
     <ClInclude Include="FFXParallelSortKernels.h" />
-    <ClInclude Include="GPUSorter.h" />
+    <ClInclude Include="GPUSortBase.h" />
     <ClInclude Include="OneSweep.h" />
     <ClInclude Include="OneSweepKernels.h" />
     <ClInclude Include="pch.h" />

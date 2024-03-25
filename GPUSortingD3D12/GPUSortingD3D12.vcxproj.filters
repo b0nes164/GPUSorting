@@ -38,7 +38,7 @@
     <ClInclude Include="GPUSorting.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ComputeShader.h">
+    <ClInclude Include="ComputeKernelBase.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Utils.h">
@@ -59,7 +59,7 @@
     <ClInclude Include="OneSweep.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GPUSorter.h">
+    <ClInclude Include="GPUSortBase.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Tests.h">

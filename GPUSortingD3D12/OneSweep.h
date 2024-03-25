@@ -9,10 +9,10 @@
 #pragma once
 #include "pch.h"
 #include "GPUSorting.h"
-#include "GPUSorter.h"
+#include "GPUSortBase.h"
 #include "OneSweepKernels.h"
 
-class OneSweep : public GPUSorter
+class OneSweep : public GPUSortBase
 {
     const uint32_t k_globalHistPartitionSize = 32768;
 

@@ -16,7 +16,7 @@ OneSweep::OneSweep(
     DeviceInfo _deviceInfo,
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -41,7 +41,7 @@ OneSweep::OneSweep(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -67,13 +67,11 @@ OneSweep::~OneSweep()
 
 void OneSweep::InitComputeShaders()
 {
-    m_initOneSweep = new OneSweepKernels::InitOneSweep(m_device, m_devInfo, m_compileArguments);
-    m_globalHist = new OneSweepKernels::GlobalHist(m_device, m_devInfo, m_compileArguments);
-    m_scan = new OneSweepKernels::Scan(m_device, m_devInfo, m_compileArguments);
-    m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments);
-    m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
-    m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
+    const std::filesystem::path path = "Shaders/OneSweep.hlsl";
+    m_initOneSweep = new OneSweepKernels::InitOneSweep(m_device, m_devInfo, m_compileArguments, path);
+    m_globalHist = new OneSweepKernels::GlobalHist(m_device, m_devInfo, m_compileArguments, path);
+    m_scan = new OneSweepKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
+    m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path);
 }
 
 void OneSweep::UpdateSize(uint32_t size)

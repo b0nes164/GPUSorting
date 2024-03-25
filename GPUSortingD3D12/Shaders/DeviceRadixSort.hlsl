@@ -24,6 +24,11 @@ RWStructuredBuffer<uint> b_passHist     : register(u5); //buffer used to store r
 groupshared uint g_us[RADIX * 2];   //Shared memory for upsweep
 groupshared uint g_scan[SCAN_DIM];  //Shared memory for the scan
 
+inline uint flattenGid(uint3 gid)
+{
+    return gid.x;
+}
+
 //*****************************************************************************
 //INIT KERNEL
 //*****************************************************************************
@@ -67,7 +72,7 @@ inline void ReduceWriteDigitCounts(uint gtid, uint gid)
 }
 
 //Exclusive scan over digit counts, then atomically add to global hist
-inline void GlobalHistExclusiveScanWGE16(uint gtid, uint gid)
+inline void GlobalHistExclusiveScanWGE16(uint gtid)
 {
     GroupMemoryBarrierWithGroupSync();
         
@@ -91,7 +96,7 @@ inline void GlobalHistExclusiveScanWGE16(uint gtid, uint gid)
     }
 }
 
-inline void GlobalHistExclusiveScanWLT16(uint gtid, uint gid)
+inline void GlobalHistExclusiveScanWLT16(uint gtid)
 {
     const uint globalHistOffset = GlobalHistOffset();
     if (gtid < WaveGetLaneCount())
@@ -157,16 +162,16 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         g_us[i] = 0;
     GroupMemoryBarrierWithGroupSync();
 
-    HistogramDigitCounts(gtid.x, gid.x);
+    HistogramDigitCounts(gtid.x, flattenGid(gid));
     GroupMemoryBarrierWithGroupSync();
     
-    ReduceWriteDigitCounts(gtid.x, gid.x);
+    ReduceWriteDigitCounts(gtid.x, flattenGid(gid));
     
     if (WaveGetLaneCount() >= 16)
-        GlobalHistExclusiveScanWGE16(gtid.x, gid.x);
+        GlobalHistExclusiveScanWGE16(gtid.x);
     
     if (WaveGetLaneCount() < 16)
-        GlobalHistExclusiveScanWLT16(gtid.x, gid.x);
+        GlobalHistExclusiveScanWLT16(gtid.x);
 }
 
 //*****************************************************************************
@@ -406,6 +411,7 @@ inline void ExclusiveThreadBlockScanWLT16(uint gtid, uint gid)
         reduction);
 }
 
+//Scan does not need flattening of gids
 [numthreads(SCAN_DIM, 1, 1)]
 void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
@@ -436,22 +442,22 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     
     ClearWaveHists(gtid.x);
     
-    if (gid.x < e_threadBlocks - 1)
+    if (flattenGid(gid) < e_threadBlocks - 1)
     {
         if (WaveGetLaneCount() >= 16)
-            keys = LoadKeysWGE16(gtid.x, gid.x);
+            keys = LoadKeysWGE16(gtid.x, flattenGid(gid));
         
         if (WaveGetLaneCount() < 16)
-            keys = LoadKeysWLT16(gtid.x, gid.x, SerialIterations());
+            keys = LoadKeysWLT16(gtid.x, flattenGid(gid), SerialIterations());
     }
         
-    if (gid.x == e_threadBlocks - 1)
+    if (flattenGid(gid) == e_threadBlocks - 1)
     {
         if (WaveGetLaneCount() >= 16)
-            keys = LoadKeysPartialWGE16(gtid.x, gid.x);
+            keys = LoadKeysPartialWGE16(gtid.x, flattenGid(gid));
         
         if (WaveGetLaneCount() < 16)
-            keys = LoadKeysPartialWLT16(gtid.x, gid.x, SerialIterations());
+            keys = LoadKeysPartialWLT16(gtid.x, flattenGid(gid), SerialIterations());
     }
     
     uint exclusiveHistReduction;
@@ -499,12 +505,12 @@ void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     }
     
     ScatterKeysShared(offsets, keys);
-    LoadThreadBlockReductions(gtid.x, gid.x, exclusiveHistReduction);
+    LoadThreadBlockReductions(gtid.x, flattenGid(gid), exclusiveHistReduction);
     GroupMemoryBarrierWithGroupSync();
     
-    if (gid.x < e_threadBlocks - 1)
-        ScatterDevice(gtid.x, gid.x, offsets);
+    if (flattenGid(gid) < e_threadBlocks - 1)
+        ScatterDevice(gtid.x, flattenGid(gid), offsets);
         
-    if (gid.x == e_threadBlocks - 1)
-        ScatterDevicePartial(gtid.x, gid.x, offsets);
+    if (flattenGid(gid) == e_threadBlocks - 1)
+        ScatterDevicePartial(gtid.x, flattenGid(gid), offsets);
 }

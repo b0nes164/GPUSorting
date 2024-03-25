@@ -15,7 +15,7 @@ DeviceRadixSort::DeviceRadixSort(
     DeviceInfo _deviceInfo,
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -36,7 +36,7 @@ DeviceRadixSort::DeviceRadixSort(
     GPU_SORTING_ORDER sortingOrder,
     GPU_SORTING_KEY_TYPE keyType,
     GPU_SORTING_PAYLOAD_TYPE payloadType) :
-    GPUSorter(
+    GPUSortBase(
         _device,
         _deviceInfo,
         sortingOrder,
@@ -109,16 +109,22 @@ bool DeviceRadixSort::TestAll()
     }
 }
 
+void DeviceRadixSort::InitUtilityComputeShaders()
+{
+    const std::filesystem::path path = "Shaders/Utility.hlsl";
+    m_initSortInput = new UtilityKernels::InitSortInput(m_device, m_devInfo, m_compileArguments, path);
+    m_clearErrorCount = new UtilityKernels::ClearErrorCount(m_device, m_devInfo, m_compileArguments, path);
+    m_validate = new UtilityKernels::Validate(m_device, m_devInfo, m_compileArguments, path);
+    m_initScanTestValues = new UtilityKernels::InitScanTestValues(m_device, m_devInfo, m_compileArguments, path);
+}
+
 void DeviceRadixSort::InitComputeShaders()
 {
-    m_initDeviceRadix = new DeviceRadixSortKernels::InitDeviceRadixSort(m_device, m_devInfo, m_compileArguments);
-    m_upsweep = new DeviceRadixSortKernels::Upsweep(m_device, m_devInfo, m_compileArguments);
-    m_scan = new DeviceRadixSortKernels::Scan(m_device, m_devInfo, m_compileArguments);
-    m_downsweep = new DeviceRadixSortKernels::Downsweep(m_device, m_devInfo, m_compileArguments);
-    m_initSortInput = new InitSortInput(m_device, m_devInfo, m_compileArguments);
-    m_clearErrorCount = new ClearErrorCount(m_device, m_devInfo, m_compileArguments);
-    m_validate = new Validate(m_device, m_devInfo, m_compileArguments);
-    m_initScanTestValues = new InitScanTestValues(m_device, m_devInfo, m_compileArguments);
+    const std::filesystem::path path = "Shaders/DeviceRadixSort.hlsl";
+    m_initDeviceRadix = new DeviceRadixSortKernels::InitDeviceRadixSort(m_device, m_devInfo, m_compileArguments, path);
+    m_upsweep = new DeviceRadixSortKernels::Upsweep(m_device, m_devInfo, m_compileArguments, path);
+    m_scan = new DeviceRadixSortKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
+    m_downsweep = new DeviceRadixSortKernels::Downsweep(m_device, m_devInfo, m_compileArguments, path);
 }
 
 void DeviceRadixSort::UpdateSize(uint32_t size)
@@ -226,8 +232,7 @@ void DeviceRadixSort::PrepareSortCmdList()
 {
     m_initDeviceRadix->Dispatch(
         m_cmdList,
-        m_globalHistBuffer->GetGPUVirtualAddress(),
-        1);
+        m_globalHistBuffer->GetGPUVirtualAddress());
     UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
 
     for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
