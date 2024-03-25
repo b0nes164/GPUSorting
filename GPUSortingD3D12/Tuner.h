@@ -24,7 +24,6 @@ namespace Tuner::TunerHelper
 		uint32_t maxWavesPerSM;
 	};
 
-
 	//At this point tuning is supported for RDNA1+ only
 	//So we just check for RDNA1+
 	struct adapterInfoAmd
@@ -312,73 +311,73 @@ namespace Tuner::TunerHelper
 
 			{ 0x1f9c, {"NVIDIA GeForce MX450 30.5W 10Gbps", 14, 65536, 65536, 32} },
 
-			{ 0x1f9f, {"NVIDIA GeForce MX550", 16, 65536, 128000, 32} },
+			{ 0x1f9f, {"NVIDIA GeForce MX550", 16, 65536, 131072, 32} },
 
-			{ 0x1fa0, {"NVIDIA GeForce MX550", 16, 65536, 128000, 32} },
+			{ 0x1fa0, {"NVIDIA GeForce MX550", 16, 65536, 131072, 32} },
 
 			//*****************************************************************************
 			//*****************************************************************************
 			//3000 SERIES NON MOBILE
 			//*****************************************************************************
 			//*****************************************************************************
-			{ 0x2583, {"NVIDIA GeForce RTX 3050 4 GB", 16, 65536, 128000, 48} },
+			{ 0x2583, {"NVIDIA GeForce RTX 3050 4 GB", 16, 65536, 131072, 48} },
 
-			{ 0x2584, {"NVIDIA GeForce RTX 3050 6 GB", 18, 65536, 128000, 48} },
+			{ 0x2584, {"NVIDIA GeForce RTX 3050 6 GB", 18, 65536, 131072, 48} },
 
-			{ 0x2508, {"NVIDIA GeForce RTX 3050 OEM", 18, 65536, 128000, 48} },
+			{ 0x2508, {"NVIDIA GeForce RTX 3050 OEM", 18, 65536, 131072, 48} },
 
-			{ 0x2582, {"NVIDIA GeForce RTX 3050 8 GB GA107", 20, 65536, 128000, 48} },
+			{ 0x2582, {"NVIDIA GeForce RTX 3050 8 GB GA107", 20, 65536, 131072, 48} },
 
-			{ 0x2507, {"NVIDIA GeForce RTX 3050 8 GB GA106", 20, 65536, 128000, 48} },
+			{ 0x2507, {"NVIDIA GeForce RTX 3050 8 GB GA106", 20, 65536, 131072, 48} },
 
-			{ 0x2501, {"NVIDIA GeForce RTX 3060 8 GB", 28, 65536, 128000, 48} },
+			{ 0x2501, {"NVIDIA GeForce RTX 3060 8 GB", 28, 65536, 131072, 48} },
 
-			{ 0x2503, {"NVIDIA GeForce RTX 3060 8 GB", 28, 65536, 128000, 48} },
+			{ 0x2503, {"NVIDIA GeForce RTX 3060 8 GB", 28, 65536, 131072, 48} },
 
-			{ 0x2504, {"NVIDIA GeForce RTX 3060 Lite Hash Rate 8 GB", 28, 65536, 128000, 48} },
+			{ 0x2504, {"NVIDIA GeForce RTX 3060 Lite Hash Rate 8 GB", 28, 65536, 131072, 48} },
 
-			{ 0x24c7, {"NVIDIA GeForce RTX 3060 8 GB GA104", 28, 65536, 128000, 48} },
+			{ 0x24c7, {"NVIDIA GeForce RTX 3060 8 GB GA104", 28, 65536, 131072, 48} },
 
-			{ 0x2487, {"NVIDIA GeForce RTX 3060 12 GB GA104", 28, 65536, 128000, 48} },
+			{ 0x2487, {"NVIDIA GeForce RTX 3060 12 GB GA104", 28, 65536, 131072, 48} },
 
-			{ 0x2544, {"NVIDIA GeForce RTX 3060 12 GB GA106", 28, 65536, 128000, 48} },
+			{ 0x2544, {"NVIDIA GeForce RTX 3060 12 GB GA106", 28, 65536, 131072, 48} },
 
-			{ 0x2509, {"NVIDIA GeForce RTX 3060 12GB Rev. 2 GA106", 28, 65536, 128000, 48} },
+			{ 0x2509, {"NVIDIA GeForce RTX 3060 12GB Rev. 2 GA106", 28, 65536, 131072, 48} },
 
 			//Not Found, rare card?
-			//{ 0x, {"NVIDIA GeForce RTX 3060 3840SP", 30, 65536, 128000, 48} },
+			//{ 0x, {"NVIDIA GeForce RTX 3060 3840SP", 30, 65536, 131072, 48} },
 
-			{ 0x2414, {"NVIDIA GeForce RTX 3060 Ti GA103", 38, 65536, 128000, 48} },
+			{ 0x2414, {"NVIDIA GeForce RTX 3060 Ti GA103", 38, 65536, 131072, 48} },
 
-			{ 0x2486, {"NVIDIA GeForce RTX 3060 Ti GA104", 38, 65536, 128000, 48} },
+			{ 0x2486, {"NVIDIA GeForce RTX 3060 Ti GA104", 38, 65536, 131072, 48} },
 
-			{ 0x2489, {"NVIDIA GeForce RTX 3060 Ti Lite Hash Rate GA104", 38, 65536, 128000, 48} },
+			{ 0x2489, {"NVIDIA GeForce RTX 3060 Ti Lite Hash Rate GA104", 38, 65536, 131072, 48} },
 
-			{ 0x24c9, {"NVIDIA GeForce RTX 3060 Ti GDDR6X", 38, 65536, 128000, 48} },
+			{ 0x24c9, {"NVIDIA GeForce RTX 3060 Ti GDDR6X", 38, 65536, 131072, 48} },
 
-			{ 0x2484, {"NVIDIA GeForce RTX 3070", 46, 65536, 128000, 48} },
+			{ 0x2484, {"NVIDIA GeForce RTX 3070", 46, 65536, 131072, 48} },
 
-			{ 0x24c8, {"NVIDIA GeForce RTX 3070 GDDR6X", 46, 65536, 128000, 48} },
+			{ 0x24c8, {"NVIDIA GeForce RTX 3070 GDDR6X", 46, 65536, 131072, 48} },
 
-			{ 0x2488, {"NVIDIA GeForce RTX 3070 Lite Hash Rate", 46, 65536, 128000, 48} },
+			{ 0x2488, {"NVIDIA GeForce RTX 3070 Lite Hash Rate", 46, 65536, 131072, 48} },
 
-			{ 0x2482, {"NVIDIA GeForce RTX 3070 Ti GA104", 48, 65536, 128000, 48} },
+			{ 0x2482, {"NVIDIA GeForce RTX 3070 Ti GA104", 48, 65536, 131072, 48} },
 
-			{ 0x2207, {"NVIDIA GeForce RTX 3070 Ti 8 GB GA102", 48, 65536, 128000, 48} },
+			{ 0x2207, {"NVIDIA GeForce RTX 3070 Ti 8 GB GA102", 48, 65536, 131072, 48} },
 
-			{ 0x2206, {"NVIDIA GeForce RTX 3080", 70, 65536, 128000, 48} },
+			{ 0x2206, {"NVIDIA GeForce RTX 3080", 70, 65536, 131072, 48} },
 
-			{ 0x220a, {"NVIDIA GeForce RTX 3080 12 GB", 70, 65536, 128000, 48} },
+			{ 0x220a, {"NVIDIA GeForce RTX 3080 12 GB", 70, 65536, 131072, 48} },
 
-			{ 0x2216, {"NVIDIA GeForce RTX 3080 Lite Hash Rate", 70, 65536, 128000, 48} },
+			{ 0x2216, {"NVIDIA GeForce RTX 3080 Lite Hash Rate", 70, 65536, 131072, 48} },
 
-			{ 0x2208, {"NVIDIA GeForce RTX 3080 Ti", 80, 65536, 128000, 48} },
+			{ 0x2208, {"NVIDIA GeForce RTX 3080 Ti", 80, 65536, 131072, 48} },
 
-			{ 0x2205, {"NVIDIA GeForce RTX 3080 Ti 20 GB", 80, 65536, 128000, 48} },
+			{ 0x2205, {"NVIDIA GeForce RTX 3080 Ti 20 GB", 80, 65536, 131072, 48} },
 
-			{ 0x2204, {"NVIDIA GeForce RTX 3090", 82, 65536, 128000, 48} },
+			{ 0x2204, {"NVIDIA GeForce RTX 3090", 82, 65536, 131072, 48} },
 
-			{ 0x2203, {"NVIDIA GeForce RTX 3090 Ti", 84, 65536, 128000, 48} },
+			{ 0x2203, {"NVIDIA GeForce RTX 3090 Ti", 84, 65536, 131072, 48} },
 
 			//*****************************************************************************
 			//*****************************************************************************
@@ -386,123 +385,123 @@ namespace Tuner::TunerHelper
 			//*****************************************************************************
 			//*****************************************************************************
 			//2050 but GA107
-			{ 0x25ad, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107", 16, 65536, 64000, 48} },
+			{ 0x25ad, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107", 16, 65536, 65536, 48} },
 
-			{ 0x25ed, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107", 16, 65536, 64000, 48} },
+			{ 0x25ed, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107", 16, 65536, 65536, 48} },
 
-			{ 0x25a9, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107M", 16, 65536, 64000, 48} },
+			{ 0x25a9, {"NVIDIA GeForce RTX 2050 Mobile / Max-Q GA107M", 16, 65536, 65536, 48} },
 
-			{ 0x25a2, {"NVIDIA GeForce RTX 3050 Mobile GA107M", 16, 65536, 128000, 48} },
+			{ 0x25a2, {"NVIDIA GeForce RTX 3050 Mobile GA107M", 16, 65536, 131072, 48} },
 
-			{ 0x25a5, {"NVIDIA GeForce RTX 3050 Max-Q GA107M", 16, 65536, 128000, 48} },
+			{ 0x25a5, {"NVIDIA GeForce RTX 3050 Max-Q GA107M", 16, 65536, 131072, 48} },
 
-			{ 0x25ab, {"NVIDIA GeForce RTX 3050 4GB Laptop GPU GA107M", 16, 65536, 128000, 48} },
+			{ 0x25ab, {"NVIDIA GeForce RTX 3050 4GB Laptop GPU GA107M", 16, 65536, 131072, 48} },
 
-			{ 0x25e2, {"NVIDIA GeForce RTX 3050 Mobile GA107BM", 20, 65536, 128000, 48} },
+			{ 0x25e2, {"NVIDIA GeForce RTX 3050 Mobile GA107BM", 20, 65536, 131072, 48} },
 
-			{ 0x25e5, {"NVIDIA GeForce RTX 3050 Mobile GA107BM", 20, 65536, 128000, 48} },
+			{ 0x25e5, {"NVIDIA GeForce RTX 3050 Mobile GA107BM", 20, 65536, 131072, 48} },
 
-			{ 0x25ac, {"NVIDIA GeForce RTX 3050 6GB Laptop GPU GN20-P0-R-K2", 20, 65536, 128000, 48} },
+			{ 0x25ac, {"NVIDIA GeForce RTX 3050 6GB Laptop GPU GN20-P0-R-K2", 20, 65536, 131072, 48} },
 
-			{ 0x25ec, {"NVIDIA GeForce RTX 3050 6GB Laptop GPU GN20-P0-R-K2", 20, 65536, 128000, 48} },
+			{ 0x25ec, {"NVIDIA GeForce RTX 3050 6GB Laptop GPU GN20-P0-R-K2", 20, 65536, 131072, 48} },
 
-			{ 0x2523, {"NVIDIA GeForce RTX 3050 Ti Mobile / Max-Q GA106M", 20, 65536, 128000, 48} },
+			{ 0x2523, {"NVIDIA GeForce RTX 3050 Ti Mobile / Max-Q GA106M", 20, 65536, 131072, 48} },
 
-			{ 0x2563, {"NVIDIA GeForce RTX 3050 Ti Mobile / Max-Q GA106M", 20, 65536, 128000, 48} },
+			{ 0x2563, {"NVIDIA GeForce RTX 3050 Ti Mobile / Max-Q GA106M", 20, 65536, 131072, 48} },
 
-			{ 0x25a0, {"NVIDIA GeForce RTX 3050 Ti Mobile GA107M", 20, 65536, 128000, 48} },
+			{ 0x25a0, {"NVIDIA GeForce RTX 3050 Ti Mobile GA107M", 20, 65536, 131072, 48} },
 
-			{ 0x25e0, {"NVIDIA GeForce RTX 3050 Ti Mobile GA107BM", 20, 65536, 128000, 48} },
+			{ 0x25e0, {"NVIDIA GeForce RTX 3050 Ti Mobile GA107BM", 20, 65536, 131072, 48} },
 
-			{ 0x2520, {"NVIDIA GeForce RTX 3060 Max-Q", 30, 65536, 128000, 48} },
+			{ 0x2520, {"NVIDIA GeForce RTX 3060 Max-Q", 30, 65536, 131072, 48} },
 
-			{ 0x2521, {"NVIDIA GeForce RTX 3060 Mobile", 30, 65536, 128000, 48} },
+			{ 0x2521, {"NVIDIA GeForce RTX 3060 Mobile", 30, 65536, 131072, 48} },
 
-			{ 0x2560, {"NVIDIA GeForce RTX 3060 Max-Q", 30, 65536, 128000, 48} },
+			{ 0x2560, {"NVIDIA GeForce RTX 3060 Max-Q", 30, 65536, 131072, 48} },
 
-			{ 0x2561, {"NVIDIA GeForce RTX 3060 Mobile", 30, 65536, 128000, 48} },
+			{ 0x2561, {"NVIDIA GeForce RTX 3060 Mobile", 30, 65536, 131072, 48} },
 
-			{ 0x249d, {"NVIDIA GeForce RTX 3070 Mobile / Max-Q", 40, 65536, 128000, 48} },
+			{ 0x249d, {"NVIDIA GeForce RTX 3070 Mobile / Max-Q", 40, 65536, 131072, 48} },
 
-			{ 0x24dd, {"NVIDIA GeForce RTX 3070 Mobile / Max-Q", 40, 65536, 128000, 48} },
+			{ 0x24dd, {"NVIDIA GeForce RTX 3070 Mobile / Max-Q", 40, 65536, 131072, 48} },
 
-			{ 0x24a0, {"NVIDIA GeForce RTX 3070 Ti Mobile / Max-Q", 46, 65536, 128000, 48} },
+			{ 0x24a0, {"NVIDIA GeForce RTX 3070 Ti Mobile / Max-Q", 46, 65536, 131072, 48} },
 
-			{ 0x24e0, {"NVIDIA GeForce RTX 3070 Ti Mobile / Max-Q", 46, 65536, 128000, 48} },
+			{ 0x24e0, {"NVIDIA GeForce RTX 3070 Ti Mobile / Max-Q", 46, 65536, 131072, 48} },
 
-			{ 0x249c, {"NVIDIA GeForce RTX 3080 Mobile / Max-Q 8GB/16GB", 48, 65536, 128000, 48} },
+			{ 0x249c, {"NVIDIA GeForce RTX 3080 Mobile / Max-Q 8GB/16GB", 48, 65536, 131072, 48} },
 
-			{ 0x24dc, {"NVIDIA GeForce RTX 3080 Mobile / Max-Q 8GB/16GB", 48, 65536, 128000, 48} },
+			{ 0x24dc, {"NVIDIA GeForce RTX 3080 Mobile / Max-Q 8GB/16GB", 48, 65536, 131072, 48} },
 
-			{ 0x2420, {"NVIDIA GeForce RTX 3080 Ti Mobile / Max-Q", 58, 65536, 128000, 48} },
+			{ 0x2420, {"NVIDIA GeForce RTX 3080 Ti Mobile / Max-Q", 58, 65536, 131072, 48} },
 
-			{ 0x2460, {"NVIDIA GeForce RTX 3080 Ti Mobile / Max-Q", 58, 65536, 128000, 48} },
+			{ 0x2460, {"NVIDIA GeForce RTX 3080 Ti Mobile / Max-Q", 58, 65536, 131072, 48} },
 
 			//*****************************************************************************
 			//*****************************************************************************
 			//3000 SERIES MXX
 			//*****************************************************************************
 			//*****************************************************************************
-			{ 0x25a6, {"NVIDIA GeForce MX570", 16, 65536, 128000, 48} },
+			{ 0x25a6, {"NVIDIA GeForce MX570", 16, 65536, 131072, 48} },
 
-			{ 0x25a7, {"NVIDIA GeForce MX570", 16, 65536, 128000, 48} },
+			{ 0x25a7, {"NVIDIA GeForce MX570", 16, 65536, 131072, 48} },
 
-			{ 0x25aa, {"NVIDIA GeForce MX570 A", 16, 65536, 128000, 48} },
+			{ 0x25aa, {"NVIDIA GeForce MX570 A", 16, 65536, 131072, 48} },
 
 			//*****************************************************************************
 			//*****************************************************************************
 			//4000 SERIES NON MOBILE
 			//*****************************************************************************
 			//*****************************************************************************
-			{ 0x2882, {"NVIDIA GeForce RTX 4060", 24, 65536, 128000, 48} },
+			{ 0x2882, {"NVIDIA GeForce RTX 4060", 24, 65536, 131072, 48} },
 
-			{ 0x2803, {"NVIDIA GeForce RTX 4060 Ti 8 GB", 34, 65536, 128000, 48} },
+			{ 0x2803, {"NVIDIA GeForce RTX 4060 Ti 8 GB", 34, 65536, 131072, 48} },
 
-			{ 0x2805, {"NVIDIA GeForce RTX 4060 Ti 16 GB", 34, 65536, 128000, 48} },
+			{ 0x2805, {"NVIDIA GeForce RTX 4060 Ti 16 GB", 34, 65536, 131072, 48} },
 
-			{ 0x2786, {"NVIDIA GeForce RTX 4070", 46, 65536, 128000, 48} },
+			{ 0x2786, {"NVIDIA GeForce RTX 4070", 46, 65536, 131072, 48} },
 
-			{ 0x2783, {"NVIDIA GeForce RTX 4070 SUPER", 56, 65536, 128000, 48} },
+			{ 0x2783, {"NVIDIA GeForce RTX 4070 SUPER", 56, 65536, 131072, 48} },
 
-			{ 0x2782, {"NVIDIA GeForce RTX 4070 Ti", 60, 65536, 128000, 48} },
+			{ 0x2782, {"NVIDIA GeForce RTX 4070 Ti", 60, 65536, 131072, 48} },
 
-			{ 0x2705, {"NVIDIA GeForce RTX 4070 Ti SUPER", 66, 65536, 128000, 48} },
+			{ 0x2705, {"NVIDIA GeForce RTX 4070 Ti SUPER", 66, 65536, 131072, 48} },
 
-			{ 0x2704, {"NVIDIA GeForce RTX 4080", 76, 65536, 128000, 48} },
+			{ 0x2704, {"NVIDIA GeForce RTX 4080", 76, 65536, 131072, 48} },
 
-			{ 0x2702, {"NVIDIA GeForce RTX 4080 SUPER", 80, 65536, 128000, 48} },
+			{ 0x2702, {"NVIDIA GeForce RTX 4080 SUPER", 80, 65536, 131072, 48} },
 
-			{ 0x2703, {"NVIDIA GeForce RTX 4080 SUPER", 80, 65536, 128000, 48} },
+			{ 0x2703, {"NVIDIA GeForce RTX 4080 SUPER", 80, 65536, 131072, 48} },
 
-			{ 0x2684, {"NVIDIA GeForce RTX 4090", 128, 65536, 128000, 48} },
+			{ 0x2684, {"NVIDIA GeForce RTX 4090", 128, 65536, 131072, 48} },
 
-			{ 0x2685, {"NVIDIA GeForce RTX 4090 D", 114, 65536, 128000, 48} },
+			{ 0x2685, {"NVIDIA GeForce RTX 4090 D", 114, 65536, 131072, 48} },
 
 			//*****************************************************************************
 			//*****************************************************************************
 			//4000 SERIES MOBILE
 			//*****************************************************************************
 			//*****************************************************************************
-			{ 0x28a1, {"NVIDIA GeForce RTX 4050 Max-Q / Mobile", 20, 65536, 128000, 48} },
+			{ 0x28a1, {"NVIDIA GeForce RTX 4050 Max-Q / Mobile", 20, 65536, 131072, 48} },
 
-			{ 0x28e1, {"NVIDIA GeForce RTX 4050 Max-Q / Mobile", 20, 65536, 128000, 48} },
+			{ 0x28e1, {"NVIDIA GeForce RTX 4050 Max-Q / Mobile", 20, 65536, 131072, 48} },
 
-			{ 0x28a0, {"NVIDIA GeForce RTX 4060 Max-Q / Mobile", 24, 65536, 128000, 48} },
+			{ 0x28a0, {"NVIDIA GeForce RTX 4060 Max-Q / Mobile", 24, 65536, 131072, 48} },
 
-			{ 0x28e0, {"NVIDIA GeForce RTX 4060 Max-Q / Mobile", 24, 65536, 128000, 48} },
+			{ 0x28e0, {"NVIDIA GeForce RTX 4060 Max-Q / Mobile", 24, 65536, 131072, 48} },
 
-			{ 0x2820, {"NVIDIA GeForce RTX 4070 Max-Q / Mobile", 36, 65536, 128000, 48} },
+			{ 0x2820, {"NVIDIA GeForce RTX 4070 Max-Q / Mobile", 36, 65536, 131072, 48} },
 
-			{ 0x2860, {"NVIDIA GeForce RTX 4070 Max-Q / Mobile", 36, 65536, 128000, 48} },
+			{ 0x2860, {"NVIDIA GeForce RTX 4070 Max-Q / Mobile", 36, 65536, 131072, 48} },
 
-			{ 0x27a0, {"NVIDIA GeForce RTX 4080 Max-Q / Mobile", 58, 65536, 128000, 48} },
+			{ 0x27a0, {"NVIDIA GeForce RTX 4080 Max-Q / Mobile", 58, 65536, 131072, 48} },
 
-			{ 0x27e0, {"NVIDIA GeForce RTX 4080 Max-Q / Mobile", 58, 65536, 128000, 48} },
+			{ 0x27e0, {"NVIDIA GeForce RTX 4080 Max-Q / Mobile", 58, 65536, 131072, 48} },
 
-			{ 0x2717, {"NVIDIA GeForce RTX 4090 Mobile", 76, 65536, 128000, 48} },
+			{ 0x2717, {"NVIDIA GeForce RTX 4090 Mobile", 76, 65536, 131072, 48} },
 
 			//Not found ?
-			//{ 0x, {"NVIDIA GeForce RTX 4090 Max-Q", 76, 65536, 128000, 48} },
+			//{ 0x, {"NVIDIA GeForce RTX 4090 Max-Q", 76, 65536, 131072, 48} },
 		};
 
 		return adapterTable;

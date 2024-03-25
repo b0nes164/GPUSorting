@@ -27,6 +27,9 @@
     <ClCompile Include="OneSweep.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FFXParallelSort.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h">
@@ -63,6 +66,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Tuner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FFXParallelSortKernels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FFXParallelSort.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

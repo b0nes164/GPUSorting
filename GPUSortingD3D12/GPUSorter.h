@@ -51,6 +51,28 @@ protected:
     ClearErrorCount* m_clearErrorCount;
     Validate* m_validate;
 
+    //Keys only
+    //chain constructors to allow passing in manual tuning params
+    GPUSorter(
+        winrt::com_ptr<ID3D12Device> _device,
+        DeviceInfo _deviceInfo,
+        GPU_SORTING_ORDER sortingOrder,
+        GPU_SORTING_KEY_TYPE keyType,
+        const char* sortName,
+        uint32_t radixPasses,
+        uint32_t radix,
+        uint32_t maxReadBack,
+        TuningParameters tuningParams) :
+        k_sortName(sortName),
+        k_radixPasses(radixPasses),
+        k_radix(radix),
+        k_maxReadBack(maxReadBack),
+        m_devInfo(_deviceInfo),
+        k_sortingConfig({ GPU_SORTING_KEYS_ONLY, sortingOrder, keyType, GPU_SORTING_PAYLOAD_UINT32 }),
+        k_tuningParameters(tuningParams)
+    {
+    };
+
     GPUSorter(
         winrt::com_ptr<ID3D12Device> _device,
         DeviceInfo _deviceInfo,
@@ -60,14 +82,39 @@ protected:
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack) :
+        GPUSorter(
+            _device,
+            _deviceInfo,
+            sortingOrder,
+            keyType,
+            sortName,
+            radixPasses,
+            radix,
+            maxReadBack,
+            Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_KEYS_ONLY))
+    {
+    };
+
+    //Pairs
+    GPUSorter(
+        winrt::com_ptr<ID3D12Device> _device,
+        DeviceInfo _deviceInfo,
+        GPU_SORTING_ORDER sortingOrder,
+        GPU_SORTING_KEY_TYPE keyType,
+        GPU_SORTING_PAYLOAD_TYPE payloadType,
+        const char* sortName,
+        uint32_t radixPasses,
+        uint32_t radix,
+        uint32_t maxReadBack,
+        TuningParameters tuningParams) :
         k_sortName(sortName),
         k_radixPasses(radixPasses),
         k_radix(radix),
         k_maxReadBack(maxReadBack),
         m_devInfo(_deviceInfo),
-        k_sortingConfig({ GPU_SORTING_KEYS_ONLY, sortingOrder, keyType, GPU_SORTING_PAYLOAD_UINT32}),
-        k_tuningParameters(Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_KEYS_ONLY))
-    {
+        k_sortingConfig({ GPU_SORTING_PAIRS, sortingOrder, keyType, payloadType }),
+        k_tuningParameters(tuningParams)
+    { 
     };
 
     GPUSorter(
@@ -80,14 +127,18 @@ protected:
         uint32_t radixPasses,
         uint32_t radix,
         uint32_t maxReadBack) :
-        k_sortName(sortName),
-        k_radixPasses(radixPasses),
-        k_radix(radix),
-        k_maxReadBack(maxReadBack),
-        m_devInfo(_deviceInfo),
-        k_sortingConfig({ GPU_SORTING_PAIRS, sortingOrder, keyType, payloadType }),
-        k_tuningParameters(Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_PAIRS))
-    { 
+        GPUSorter(
+            _device,
+            _deviceInfo,
+            sortingOrder,
+            keyType,
+            payloadType,
+            sortName,
+            radixPasses,
+            radix,
+            maxReadBack,
+            Tuner::GetTuningParameters(_deviceInfo, GPU_SORTING_PAIRS))
+    {
     };
 
     ~GPUSorter()
@@ -166,10 +217,50 @@ public:
         printf("Estimated speed at %u 32-bit elements: %E keys/sec\n\n", inputSize, inputSize / totalTime * batchSize);
     }
 
-    virtual bool TestAll() = 0;
+    virtual bool TestAll()
+    {
+        printf("Beginning ");
+        printf(k_sortName);
+        PrintSortingConfig(k_sortingConfig);
+        printf("test all. \n");
+
+        uint32_t sortPayloadTestsPassed = 0;
+        const uint32_t testEnd = k_tuningParameters.partitionSize * 2 + 1;
+        for (uint32_t i = k_tuningParameters.partitionSize; i < testEnd; ++i)
+        {
+            sortPayloadTestsPassed += ValidateSort(i, i);
+
+            if (!(i & 127))
+                printf(".");
+        }
+
+        printf("\n");
+        printf("%u / %u passed. \n", sortPayloadTestsPassed, k_tuningParameters.partitionSize + 1);
+
+        printf("Beginning large size tests\n");
+        sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
+
+        sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
+
+        sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
+
+        uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 3;
+        if (sortPayloadTestsPassed == totalTests)
+        {
+            printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
+            return true;
+        }
+        else
+        {
+            printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
+            return false;
+        }
+
+        return sortPayloadTestsPassed == totalTests;
+    }
 
 protected:
-    void SetCompileArguments()
+    virtual void SetCompileArguments()
     {
         if (k_tuningParameters.shouldLockWavesTo32)
             m_compileArguments.push_back(L"-DLOCK_TO_W32");

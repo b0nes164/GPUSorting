@@ -51,7 +51,7 @@
 #define RADIX_LOG           8U      //log2(RADIX)
 #define RADIX_PASSES        4U      //(Key width) / RADIX_LOG
 
-cbuffer cbParallelSort : register(b0)
+cbuffer cbGpuSorting : register(b0)
 {
     uint e_numKeys;
     uint e_radixShift;

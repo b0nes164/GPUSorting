@@ -162,6 +162,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DeviceRadixSort.cpp" />
+    <ClCompile Include="FFXParallelSort.cpp" />
     <ClCompile Include="GPUSortingD3D12.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Use</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Use</PrecompiledHeader>
@@ -180,6 +181,8 @@
     <ClInclude Include="ComputeShader.h" />
     <ClInclude Include="DeviceRadixSort.h" />
     <ClInclude Include="DeviceRadixSortKernels.h" />
+    <ClInclude Include="FFXParallelSort.h" />
+    <ClInclude Include="FFXParallelSortKernels.h" />
     <ClInclude Include="GPUSorter.h" />
     <ClInclude Include="OneSweep.h" />
     <ClInclude Include="OneSweepKernels.h" />

@@ -9,6 +9,7 @@
 #include "pch.h"
 #include "DeviceRadixSort.h"
 #include "OneSweep.h"
+#include "FFXParallelSort.h"
 #include "Tests.h"
 
 extern "C" { __declspec(dllexport) extern const UINT D3D12SDKVersion = 613; }
@@ -78,7 +79,7 @@ DeviceInfo GetDeviceInfo(ID3D12Device* device)
 winrt::com_ptr<ID3D12Device> InitDevice()
 {
 #ifdef _DEBUG
-    winrt::com_ptr<ID3D12Debug1> debugController;
+    winrt::com_ptr<ID3D12Debug6> debugController;
     if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
     {
         debugController->EnableDebugLayer();
@@ -91,6 +92,10 @@ winrt::com_ptr<ID3D12Device> InitDevice()
 
     winrt::com_ptr<ID3D12Device> device;
     winrt::check_hresult(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(device.put())));
+
+#ifdef _DEBUG
+    
+#endif 
     return device;
 }
 
@@ -116,20 +121,29 @@ int main()
         device, 
         deviceInfo,
         GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPU_SORTING_KEY_UINT32);
+    dvr->TestSort(1 << 28, 10, false, true);
     dvr->TestAll();
-    dvr->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
+    dvr->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
     dvr->~DeviceRadixSort();
 
     OneSweep* oneSweep = new OneSweep(
         device,
         deviceInfo,
         GPU_SORTING_ASCENDING,
-        GPU_SORTING_KEY_UINT32,
-        GPU_SORTING_PAYLOAD_UINT32);
+        GPU_SORTING_KEY_UINT32);
     oneSweep->TestAll();
-    oneSweep->BatchTiming(1 << 28, 100, 10, ENTROPY_PRESET_1);
+    oneSweep->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
+    oneSweep->~OneSweep();
+
+    FFXParallelSort* ffxPs = new FFXParallelSort(
+        device,
+        deviceInfo,
+        GPU_SORTING_ASCENDING,
+        GPU_SORTING_KEY_UINT32);
+    ffxPs->TestAll();
+    ffxPs->BatchTiming(1 << 25, 100, 10, ENTROPY_PRESET_1);
+    ffxPs->~FFXParallelSort();
 
     //SuperTestOneSweep(device, deviceInfo);            <-Test the complete feature space,
     //SuperTestDeviceRadixSort(device, deviceInfo);     <-this will take a while!

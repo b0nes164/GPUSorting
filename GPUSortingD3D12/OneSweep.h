@@ -43,8 +43,6 @@ public:
 
     ~OneSweep();
 
-    bool TestAll() override;
-
 protected:
     void InitComputeShaders() override;
 

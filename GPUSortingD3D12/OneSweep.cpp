@@ -65,48 +65,6 @@ OneSweep::~OneSweep()
 {
 }
 
-bool OneSweep::TestAll()
-{
-    printf("Beginning ");
-    printf(k_sortName);
-    PrintSortingConfig(k_sortingConfig);
-    printf("test all. \n");
-
-    uint32_t sortPayloadTestsPassed = 0;
-    const uint32_t testEnd = k_tuningParameters.partitionSize * 2 + 1;
-    for (uint32_t i = k_tuningParameters.partitionSize; i < testEnd; ++i)
-    {
-        sortPayloadTestsPassed += ValidateSort(i, i);
-
-        if (!(i & 127))
-            printf(".");
-    }
-
-    printf("\n");
-    printf("%u / %u passed. \n", sortPayloadTestsPassed, k_tuningParameters.partitionSize + 1);
-
-    printf("Beginning large size tests\n");
-    sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
-
-    sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
-
-    sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
-
-    uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 3;
-    if (sortPayloadTestsPassed == totalTests)
-    {
-        printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
-        return true;
-    }
-    else
-    {
-        printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
-        return false;
-    }
-        
-    return sortPayloadTestsPassed == totalTests;
-}
-
 void OneSweep::InitComputeShaders()
 {
     m_initOneSweep = new OneSweepKernels::InitOneSweep(m_device, m_devInfo, m_compileArguments);
@@ -268,7 +226,6 @@ void OneSweep::PrepareSortCmdList()
             m_numKeys,
             m_partitions,
             radixShift);
-
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
         UAVBarrierSingle(m_cmdList, m_sortPayloadBuffer);
         UAVBarrierSingle(m_cmdList, m_altBuffer);
