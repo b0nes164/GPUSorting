@@ -17,10 +17,18 @@ As a measure of the quality of the code, GPUSorting has also been implemented in
 
 ## GPUSorting vs Fidelity FX Parallel Sort
 
-## Tuning for Different Devices:
-Currently, GPUSorting does not incorporate any sort of device-based tuning; instead, it uses a "middle-of-the-road" tuning preset that appears to work well on most devices:
+In addition to CUB, GPUSorting has also been benchmarked against AMD's FidelityFX Parallel Sort (FFXPS), which is an algorithm much more familiar to game developers and has been included in the D3D12 implementation. FFXPS is also an LSD radix sort, but uses older techniques, in particular, a 4-bit radix. As opposed to GPUSorting, which uses 8-bit radixes, FFXPS must make 8 sorting passes to sort a 32-bit key. Another key difference is that FFXPS uses a fixed number of thread blocks per dispatch, which causes performance to suffer at larger input sizes (note the degradation in performance of pair sorting in particular). This is discussed in more detail in the section below titled "Handling Very Large Inputs." To ensure a fair comparison between algorithms, FFXPS was tuned to 256 threads per thread block and 1024 thread blocks. Tuning of FFXPS could probably be more aggressive; however, FFXPS is notably more brittle than GPUSorting when it comes to tuning, as loading of elements is not looped and some of the prefix sums appear to handle a maximum of 1024 elements. Increasing thread blocks beyond 1024 or increasing the partition size beyond 1024 resulted in crashes.
 
-![GPUSorting D3D12 Speeds](https://github.com/b0nes164/GPUSorting/assets/68340554/e00e0622-3f12-4526-b993-390d28965c73)
+![GPUSorting vs FidelityFX Keys Only](https://github.com/b0nes164/GPUSorting/assets/68340554/195741cf-4f6d-42bb-bd03-93ddbe202373)
+
+![GPUSorting vs FidelityFX Pairs](https://github.com/b0nes164/GPUSorting/assets/68340554/5aab9d57-5b47-407b-bd98-a9f68147f53f)
+
+## Automatic Tuning for Devices:
+GPUSorting is constructed in such a way that elements processed per thread, threads per thread block, and shared memory allocation can all be controlled through compiler defines. This effectively gives the runtime process control over all the necessary parameters required to tune the shader to a given device. Upon initializing an adapter, we identify the device and then check if we have a tuning preset for it. Currently, there are tuning presets for all non-workstation Nvidia cards Pascal+ and all non-workstation AMD cards RDNA1+. If no tuning preset is found for a device, a less aggressive generic preset is used.
+
+Generally speaking, tuning presets are developed on a per-architecture basis. The general idea is to oversubscribe the SMs/WGPs as much as possible while maintaining as high occupancy as possible, maintaining an efficient pattern of memory accesses, and balancing the workload between waves in a thread block. On Nvidia cards, shared memory per SM sometimes varies within a given architecture, and so this is taken into account. For AMD cards, tuning is much more straightforward, as we only tune for RDNA1+, and the only difference between RDNA generations appears to be the reduction in wave hosting capacity on the SIMD32s from 20 to 16. For RDNA cards, we use the `WaveSize()` attribute to lock the wave size to 32, as we want WGPs not CUs.
+
+![GPUSorting D3D12 Speeds, with Device-Based Tuning](https://github.com/b0nes164/GPUSorting/assets/68340554/e6c25fd8-23e8-47f4-99c2-5bb4e79b4eaf)
 
 # Portability
 
