@@ -91,12 +91,16 @@ bool DeviceRadixSort::TestAll()
 
     printf("Beginning large size tests\n");
     sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
-
     sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
-
     sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
 
-    uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 255 + 3;
+    //Test the multi-dispatching at the cutoff point
+    uint32_t maxDimPartSize = 65535 * k_tuningParameters.partitionSize;
+    sortPayloadTestsPassed += ValidateSort(maxDimPartSize - 1, 13);
+    sortPayloadTestsPassed += ValidateSort(maxDimPartSize, 17);
+    sortPayloadTestsPassed += ValidateSort(maxDimPartSize + (1 << 20), 19);
+
+    uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 255 + 6;
     if (sortPayloadTestsPassed + scanTestsPassed == totalTests)
     {
         printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);

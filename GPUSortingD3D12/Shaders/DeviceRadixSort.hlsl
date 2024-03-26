@@ -13,6 +13,7 @@
 //#define SHOULD_ASCEND
 //#define SORT_PAIRS
 //#define ENABLE_16_BIT
+//#define LOCK_TO_W32               //Used to lock RDNA to 32, we want WGP's not CU's
 #include "SortCommon.hlsl"
 
 #define US_DIM          128U        //The number of threads in a Upsweep threadblock
@@ -429,6 +430,10 @@ inline void LoadThreadBlockReductions(uint gtid, uint gid, uint exclusiveHistRed
     }
 }
 
+//Lock RDNA to 32, we want WGP's not CU's
+#if defined(LOCK_TO_W32)
+[WaveSize(32)]
+#endif
 [numthreads(D_DIM, 1, 1)]
 void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {

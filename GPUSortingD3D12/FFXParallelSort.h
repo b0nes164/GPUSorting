@@ -34,14 +34,14 @@ class FFXParallelSort : public GPUSortBase
 
     uint32_t k_maxThreadGroupsToRun;
 
-	winrt::com_ptr<ID3D12Resource> m_sumTableBuffer;
-	winrt::com_ptr<ID3D12Resource> m_reduceTableBuffer;
+    winrt::com_ptr<ID3D12Resource> m_sumTableBuffer;
+    winrt::com_ptr<ID3D12Resource> m_reduceTableBuffer;
 
-	FFXParallelSortKernels::FfxPsCount* m_psCount;
-	FFXParallelSortKernels::FfxPsCountReduce* m_psCountReduce;
-	FFXParallelSortKernels::FfxPsScan* m_psScan;
-	FFXParallelSortKernels::FfxPsScanAdd* m_psScanAdd;
-	FFXParallelSortKernels::FfxPsScatter* m_psScatter;
+    FFXParallelSortKernels::FfxPsCount* m_psCount;
+    FFXParallelSortKernels::FfxPsCountReduce* m_psCountReduce;
+    FFXParallelSortKernels::FfxPsScan* m_psScan;
+    FFXParallelSortKernels::FfxPsScanAdd* m_psScanAdd;
+    FFXParallelSortKernels::FfxPsScatter* m_psScatter;
 
 public:
     FFXParallelSort(
@@ -58,6 +58,8 @@ public:
         GPUSorting::PAYLOAD_TYPE payloadType);
 
     ~FFXParallelSort();
+
+    bool TestAll() override;
 
 protected:
     void SetCompileArguments() override;

@@ -117,7 +117,7 @@ int main()
     //winrt::com_ptr<ID3D12Device> device = InitDeviceWarp(); <- To test WARP, you will need NuGet package
     GPUSorting::DeviceInfo deviceInfo = GetDeviceInfo(device.get());
 
-    /*DeviceRadixSort* dvr = new DeviceRadixSort(
+    DeviceRadixSort* dvr = new DeviceRadixSort(
         device, 
         deviceInfo,
         GPUSorting::ORDER_ASCENDING,
@@ -145,9 +145,8 @@ int main()
         GPUSorting::PAYLOAD_UINT32);
     ffxPs->TestAll();
     ffxPs->BatchTiming(1 << 25, 100, 10, GPUSorting::ENTROPY_PRESET_1);
-    ffxPs->~FFXParallelSort();*/
+    ffxPs->~FFXParallelSort();
 
-    SuperTestDeviceRadixSort(device, deviceInfo);
     //SuperTestOneSweep(device, deviceInfo);            <-Test the complete feature space,
     //SuperTestDeviceRadixSort(device, deviceInfo);     <-this will take a while!
 

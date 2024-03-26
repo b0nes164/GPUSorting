@@ -26,7 +26,7 @@
 #include "FFXParallelSort.h"
 
 FFXParallelSort::FFXParallelSort(
-	winrt::com_ptr<ID3D12Device> _device,
+    winrt::com_ptr<ID3D12Device> _device,
     GPUSorting::DeviceInfo _deviceInfo,
     GPUSorting::ORDER sortingOrder,
     GPUSorting::KEY_TYPE keyType) :
@@ -77,7 +77,7 @@ FFXParallelSort::FFXParallelSort(
         16,
         1 << 13,
         GPUSorting::TuningParameters{ false, 4, 256, 1024, 0 }),  //Pass in a set of parameters to match FFX
-    k_maxThreadGroupsToRun(512)
+    k_maxThreadGroupsToRun(1024)
 {
     m_device.copy_from(_device.get());
 
@@ -104,6 +104,48 @@ FFXParallelSort::FFXParallelSort(
 
 FFXParallelSort::~FFXParallelSort()
 {
+}
+
+//FFX does not include the large size partition test
+//as it uses a different method to handle large partitions
+bool FFXParallelSort::TestAll()
+{
+    printf("Beginning ");
+    printf(k_sortName);
+    PrintSortingConfig(k_sortingConfig);
+    printf("test all. \n");
+
+    uint32_t sortPayloadTestsPassed = 0;
+    const uint32_t testEnd = k_tuningParameters.partitionSize * 2 + 1;
+    for (uint32_t i = k_tuningParameters.partitionSize; i < testEnd; ++i)
+    {
+        sortPayloadTestsPassed += ValidateSort(i, i);
+
+        if (!(i & 127))
+            printf(".");
+    }
+
+    printf("\n");
+    printf("%u / %u passed. \n", sortPayloadTestsPassed, k_tuningParameters.partitionSize + 1);
+
+    printf("Beginning large size tests\n");
+    sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
+    sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
+    sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
+
+    uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 6;
+    if (sortPayloadTestsPassed == totalTests)
+    {
+        printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
+        return true;
+    }
+    else
+    {
+        printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
+        return false;
+    }
+
+    return sortPayloadTestsPassed == totalTests;
 }
 
 void FFXParallelSort::SetCompileArguments()

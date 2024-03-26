@@ -18,6 +18,7 @@
 //#define SHOULD_ASCEND
 //#define SORT_PAIRS
 //#define ENABLE_16_BIT
+//#define LOCK_TO_W32               //Used to lock RDNA to 32, we want WGP's not CU's
 #include "SortCommon.hlsl"
 
 #define G_HIST_PART_SIZE    32768U  //The size of a GlobalHistogram partition tile.

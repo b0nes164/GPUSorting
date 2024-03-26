@@ -98,16 +98,38 @@ private:
             CLSID_DxcCompiler, IID_PPV_ARGS(compiler.put())));
 
         winrt::com_ptr<IDxcResult> result;
-        winrt::check_hresult(compiler->Compile(
+        HRESULT hr = compiler->Compile(
             &dxcBuffer,
             compilerArgs->GetArguments(),
             compilerArgs->GetCount(),
             includeHandler.get(),
-            IID_PPV_ARGS(result.put())));
+            IID_PPV_ARGS(result.put()));
+
+        if (SUCCEEDED(hr))
+        {
+            winrt::check_hresult(result->GetStatus(&hr));
+        }
+
+        if (FAILED(hr))
+        {
+            if (result)
+            {
+                winrt::com_ptr<IDxcBlobEncoding> errorsBlob;
+                HRESULT getErrorBufferResult =
+                    result->GetErrorBuffer(errorsBlob.put());
+                if (SUCCEEDED(getErrorBufferResult))
+                {
+                    std::cout << "Details: ";
+                    std::cout << static_cast<const char*>(
+                        errorsBlob->GetBufferPointer());
+                    std::cout << "\n\n";
+                }
+            }
+            winrt::check_hresult(hr);
+        }
 
         winrt::com_ptr<IDxcBlob> computeShader;
         winrt::check_hresult(result->GetResult(computeShader.put()));
-
         std::vector<uint8_t> byteCode(computeShader->GetBufferSize());
         memcpy(byteCode.data(), computeShader->GetBufferPointer(),
             computeShader->GetBufferSize());
