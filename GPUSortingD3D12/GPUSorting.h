@@ -20,6 +20,8 @@ namespace GPUSorting
         uint32_t SIMDWidth;
         uint32_t SIMDLaneCount;
         uint32_t SIMDMaxWidth;
+        uint64_t dedicatedVideoMemory;
+        uint64_t sharedSystemMemory;
         bool SupportsWaveIntrinsics;
         bool Supports16BitTypes;
         bool SupportsDeviceRadixSort;

@@ -19,6 +19,7 @@ protected:
     const uint32_t k_radixPasses;
     const uint32_t k_radix;
     const uint32_t k_maxReadBack;
+    const uint32_t k_maxDispatchDimension = 65535;
 
     const GPUSorting::GPUSortingConfig k_sortingConfig{};
     const GPUSorting::TuningParameters k_tuningParameters{};
@@ -258,25 +259,19 @@ public:
         sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
         sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
 
-        //Test the multi-dispatching at the cutoff point
-        uint32_t maxDimPartSize = 65535 * k_tuningParameters.partitionSize;
-        sortPayloadTestsPassed += ValidateSort(maxDimPartSize - 1, 13);
-        sortPayloadTestsPassed += ValidateSort(maxDimPartSize, 17);
-        sortPayloadTestsPassed += ValidateSort(maxDimPartSize + (1 << 20), 19);
-
-        uint32_t totalTests = k_tuningParameters.partitionSize + 1 + 6;
-        if (sortPayloadTestsPassed == totalTests)
+        uint32_t testsExpected = k_tuningParameters.partitionSize + 1 + 3;
+        if (sortPayloadTestsPassed == testsExpected)
         {
-            printf("%u / %u  All tests passed. \n\n", totalTests, totalTests);
+            printf("%u / %u  All tests passed. \n\n", testsExpected, testsExpected);
             return true;
         }
         else
         {
-            printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, totalTests);
+            printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, testsExpected);
             return false;
         }
 
-        return sortPayloadTestsPassed == totalTests;
+        return sortPayloadTestsPassed == testsExpected;
     }
 
 protected:
@@ -317,6 +312,9 @@ protected:
 
         switch (k_tuningParameters.partitionSize)
         {
+        case 1792:
+            m_compileArguments.push_back(L"-DPART_SIZE_1792");
+            break;
         case 2560:
             m_compileArguments.push_back(L"-DPART_SIZE_2560");
             break;

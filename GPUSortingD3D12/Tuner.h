@@ -31,6 +31,7 @@ namespace Tuner::TunerHelper
         const char* deviceName;
     };
 
+    //In the future these could perfect hash tables, but unnecessary at the moment.
     static std::unordered_map<uint32_t, adapterInfoNvidia> InitializeNvidiaTuningTable()
     {
         std::unordered_map<uint32_t, adapterInfoNvidia> adapterTable
@@ -634,25 +635,57 @@ namespace Tuner::TunerHelper
         return adapterTable;
     }
 
-    static inline GPUSorting::TuningParameters GetGenericTuningParameters()
+    static inline uint32_t max(uint32_t x, uint32_t y)
     {
-        const bool k_genericShouldLock = false;
-        const uint32_t k_genericKeysPerThread = 15;
-        const uint32_t k_genericThreadsPerThreadBlock = 256;
-        constexpr uint32_t k_genericPartSize =
-            k_genericKeysPerThread * k_genericThreadsPerThreadBlock;
-        constexpr uint32_t k_genericTotalSharedMem =
-            k_genericPartSize + 256;
+        return x > y ? x : y;
+    }
+
+    static inline uint32_t partitionSize(
+        uint32_t keysPerThread,
+        uint32_t threadsPerThreadBlock)
+    {
+        return keysPerThread * threadsPerThreadBlock;
+    }
+
+    static inline uint32_t histogramSharedMemory(
+        uint32_t threadsPerThreadBlock,
+        uint32_t simdWidth)
+    {
+        const uint32_t radix = 256;
+        return threadsPerThreadBlock / simdWidth * radix;
+    }
+
+    static inline uint32_t combinedPartitionSharedMemory(
+        uint32_t partitionSize)
+    {
+        const uint32_t radix = 256;
+        return partitionSize + radix;
+    }
+
+    static inline GPUSorting::TuningParameters GetGenericTuningParameters(
+        const GPUSorting::DeviceInfo& devInfo)
+    {
+        bool genericShouldLock = false;
+        uint32_t genericKeysPerThread = 7;
+        uint32_t genericThreadsPerThreadBlock = 256;
+        uint32_t genericPartSize =
+            partitionSize(genericKeysPerThread, genericThreadsPerThreadBlock);
+        uint32_t genericCombinedPartitionSharedMemory =
+            combinedPartitionSharedMemory(genericPartSize);
+        uint32_t genericHistogramSharedMemory =
+            histogramSharedMemory(genericThreadsPerThreadBlock, devInfo.SIMDWidth);
+        uint32_t genericTotalSharedMem = 4096;
 
         return {
-            k_genericShouldLock,
-            k_genericKeysPerThread,
-            k_genericThreadsPerThreadBlock,
-            k_genericPartSize,
-            k_genericTotalSharedMem };
+            genericShouldLock,
+            genericKeysPerThread,
+            genericThreadsPerThreadBlock,
+            genericPartSize,
+            genericTotalSharedMem };
     }
 
     static inline GPUSorting::TuningParameters calcKeysTuningParametersNvidia(
+        const GPUSorting::DeviceInfo& devInfo,
         const adapterInfoNvidia& info)
     {
         const uint32_t lanesPerWarp = 32;
@@ -683,14 +716,15 @@ namespace Tuner::TunerHelper
             threadsPerThreadBlock = 256; //3840
             break;
         default:
-            return GetGenericTuningParameters();
+            return GetGenericTuningParameters(devInfo);
         }
 
         uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
-        uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWarp * 256;
-        uint32_t combinedPartSize = partitionSize + 256;
-        uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
-            histogramSharedMemory : combinedPartSize;
+        uint32_t histSharedMemory =
+            histogramSharedMemory(threadsPerThreadBlock, lanesPerWarp);
+        uint32_t combinedPartSize =
+            combinedPartitionSharedMemory(partitionSize);
+        uint32_t totalSharedMemory = max(histSharedMemory, combinedPartSize);
 
         tuningParams = {
             shouldLock,
@@ -703,6 +737,7 @@ namespace Tuner::TunerHelper
     }
 
     static inline GPUSorting::TuningParameters calcPairsTuningParametersNvidia(
+        const GPUSorting::DeviceInfo& devInfo,
         const adapterInfoNvidia& info)
     {
         const uint32_t lanesPerWarp = 32;
@@ -731,14 +766,15 @@ namespace Tuner::TunerHelper
             threadsPerThreadBlock = 512; //7680
             break;
         default:
-            return GetGenericTuningParameters();
+            return GetGenericTuningParameters(devInfo);
         }
 
         uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
-        uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWarp * 256;
-        uint32_t combinedPartSize = partitionSize + 256;
-        uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
-            histogramSharedMemory : combinedPartSize;
+        uint32_t histSharedMemory =
+            histogramSharedMemory(threadsPerThreadBlock, lanesPerWarp);
+        uint32_t combinedPartSize =
+            combinedPartitionSharedMemory(partitionSize);
+        uint32_t totalSharedMemory = max(histSharedMemory, combinedPartSize);
 
         tuningParams = {
             shouldLock,
@@ -756,21 +792,23 @@ namespace Tuner::TunerHelper
     static inline GPUSorting::TuningParameters calcKeysTuningParametersRDNA()
     {
         //We lock the wave size to 32 because we want want WGPs not CUs
-        const bool shouldLockToW32 = true;
+        bool shouldLockToW32 = true;
         const uint32_t lanesPerWave = 32;
-        const uint32_t keysPerThread = 7;
-        const uint32_t threadsPerThreadBlock = 512;	//3584
-        const uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
-        const uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWave * 256;
-        const uint32_t combinedPartSize = partitionSize + 256;
-        const uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
-            histogramSharedMemory : combinedPartSize;
+
+        uint32_t keysPerThread = 7;
+        uint32_t threadsPerThreadBlock = 512;	
+        uint32_t partSize = partitionSize(keysPerThread, threadsPerThreadBlock); //3584
+        uint32_t histSharedMemory = histogramSharedMemory(threadsPerThreadBlock, lanesPerWave);
+        uint32_t combinedPartSize = 
+            combinedPartitionSharedMemory(partSize);
+        uint32_t totalSharedMemory = 
+            max(histSharedMemory, combinedPartSize);
 
         const GPUSorting::TuningParameters tuningParams = {
             shouldLockToW32,
             keysPerThread,
             threadsPerThreadBlock,
-            partitionSize,
+            partSize,
             totalSharedMemory };
 
         return tuningParams;
@@ -781,19 +819,21 @@ namespace Tuner::TunerHelper
         //We lock the wave size to 32 because we want want WGPs not CUs
         const bool shouldLockToW32 = true;
         const uint32_t lanesPerWave = 32;
-        const uint32_t keysPerThread = 5;
-        const uint32_t threadsPerThreadBlock = 512; //2560
-        const uint32_t partitionSize = keysPerThread * threadsPerThreadBlock;
-        const uint32_t histogramSharedMemory = threadsPerThreadBlock / lanesPerWave * 256;
-        const uint32_t combinedPartSize = partitionSize + 256;
-        const uint32_t totalSharedMemory = histogramSharedMemory > combinedPartSize ?
-            histogramSharedMemory : combinedPartSize;
+
+        uint32_t keysPerThread = 5;
+        uint32_t threadsPerThreadBlock = 512;
+        uint32_t partSize = partitionSize(keysPerThread, threadsPerThreadBlock); //2560
+        uint32_t histSharedMemory = histogramSharedMemory(threadsPerThreadBlock, lanesPerWave);
+        uint32_t combinedPartSize =
+            combinedPartitionSharedMemory(partSize);
+        uint32_t totalSharedMemory =
+            max(histSharedMemory, combinedPartSize);
 
         const GPUSorting::TuningParameters tuningParams = {
             shouldLockToW32,
             keysPerThread,
             threadsPerThreadBlock,
-            partitionSize,
+            partSize,
             totalSharedMemory };
 
         return tuningParams;
@@ -810,15 +850,15 @@ namespace Tuner::TunerHelper
         if (result != table.end())
         {
             tuningParams = gpuSortMode == GPUSorting::MODE_KEYS_ONLY ?
-                TunerHelper::calcKeysTuningParametersNvidia(result->second) :
-                TunerHelper::calcPairsTuningParametersNvidia(result->second);
+                TunerHelper::calcKeysTuningParametersNvidia(devInfo, result->second) :
+                TunerHelper::calcPairsTuningParametersNvidia(devInfo, result->second);
         }
         else
         {
 #ifdef _DEBUG
             printf("Device not found in tuning table, reverting to generic tuning preset.");
 #endif
-            tuningParams = TunerHelper::GetGenericTuningParameters();
+            tuningParams = TunerHelper::GetGenericTuningParameters(devInfo);
         }
 
         return tuningParams;
@@ -843,7 +883,7 @@ namespace Tuner::TunerHelper
 #ifdef _DEBUG
             printf("Device not found in tuning table, reverting to generic tuning preset.");
 #endif
-            tuningParams = TunerHelper::GetGenericTuningParameters();
+            tuningParams = TunerHelper::GetGenericTuningParameters(devInfo);
         }
 
         return tuningParams;
@@ -869,7 +909,7 @@ namespace Tuner
 #ifdef _DEBUG
             printf("No tuning preset for vendor, reverting to generic tuning preset.");
 #endif
-            tuningParams = TunerHelper::GetGenericTuningParameters();
+            tuningParams = TunerHelper::GetGenericTuningParameters(devInfo);
             break;
         }
 

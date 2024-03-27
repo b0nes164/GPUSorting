@@ -64,6 +64,78 @@ OneSweep::~OneSweep()
 {
 }
 
+bool OneSweep::TestAll()
+{
+    printf("Beginning ");
+    printf(k_sortName);
+    PrintSortingConfig(k_sortingConfig);
+    printf("test all. \n");
+
+    uint32_t sortPayloadTestsPassed = 0;
+    uint32_t testsExpected = k_tuningParameters.partitionSize + 1 + 3;
+
+    const uint32_t testEnd = k_tuningParameters.partitionSize * 2 + 1;
+    for (uint32_t i = k_tuningParameters.partitionSize; i < testEnd; ++i)
+    {
+        sortPayloadTestsPassed += ValidateSort(i, i);
+
+        if (!(i & 127))
+            printf(".");
+    }
+
+    printf("\n");
+    printf("%u / %u passed. \n", sortPayloadTestsPassed, k_tuningParameters.partitionSize + 1);
+
+    //Validate the multi-dispatching approach to handle large inputs.
+    //This has extremely large memory requirements. So we check to make
+    //sure we can do it.
+    printf("Beginning large size tests\n");
+    sortPayloadTestsPassed += ValidateSort(1 << 21, 5);
+    sortPayloadTestsPassed += ValidateSort(1 << 22, 7);
+    sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
+
+    uint64_t totalAvailableMemory = m_devInfo.dedicatedVideoMemory + m_devInfo.sharedSystemMemory;
+    uint64_t maxDimTestSize = k_maxDispatchDimension * k_tuningParameters.partitionSize;
+
+    uint64_t staticMemoryRequirements =
+        (k_radix * k_radixPasses * sizeof(uint32_t)) +      //This is the global histogram
+        (sizeof(uint32_t)) +                                //The error buffer
+        k_maxReadBack * sizeof(uint32_t);                   //The readback buffer
+
+    //Multiply by 4 for sort, payload, alt, alt payload, add 1
+    //in case fragmentation of the memory causes issues when spilling into shared system memory. 
+    uint64_t pairsMemoryRequirements =
+        (k_maxDispatchDimension * k_tuningParameters.partitionSize * sizeof(uint32_t) * 5) +
+        staticMemoryRequirements +
+        ((1 << 20) * sizeof(uint32_t));
+
+    if (totalAvailableMemory >= pairsMemoryRequirements)
+    {
+        sortPayloadTestsPassed += ValidateSort(maxDimTestSize - 1, 13);
+        sortPayloadTestsPassed += ValidateSort(maxDimTestSize, 17);
+        sortPayloadTestsPassed += ValidateSort(maxDimTestSize + (1 << 20), 19);
+        testsExpected += 3;
+    }
+    else
+    {
+        printf("Warning, device does not have enough memory to test multi-dispatch");
+        printf(" handling of very large inputs. These tests have been skipped\n");
+    }
+    
+    if (sortPayloadTestsPassed == testsExpected)
+    {
+        printf("%u / %u  All tests passed. \n\n", testsExpected, testsExpected);
+        return true;
+    }
+    else
+    {
+        printf("%u / %u  Test failed. \n\n", sortPayloadTestsPassed, testsExpected);
+        return false;
+    }
+
+    return sortPayloadTestsPassed == testsExpected;
+}
+
 void OneSweep::InitComputeShaders()
 {
     const std::filesystem::path path = "Shaders/OneSweep.hlsl";

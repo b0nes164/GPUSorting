@@ -28,7 +28,9 @@
 #define D_DIM               512U
 #endif
 
-#if defined(PART_SIZE_2560)
+#if defined(PART_SIZE_1792)
+#define PART_SIZE           1792U
+#elif defined(PART_SIZE_2560)
 #define PART_SIZE           2560U
 #elif defined(PART_SIZE_3584)
 #define PART_SIZE           3584U

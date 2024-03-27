@@ -59,8 +59,6 @@ public:
 
     ~FFXParallelSort();
 
-    bool TestAll() override;
-
 protected:
     void SetCompileArguments() override;
 

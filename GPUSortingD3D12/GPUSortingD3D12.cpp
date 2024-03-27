@@ -31,6 +31,8 @@ GPUSorting::DeviceInfo GetDeviceInfo(ID3D12Device* device)
     devInfo.Description = adapterDesc.Description;
     devInfo.deviceId = adapterDesc.DeviceId;
     devInfo.vendorId = adapterDesc.VendorId;
+    devInfo.dedicatedVideoMemory = adapterDesc.DedicatedVideoMemory;
+    devInfo.sharedSystemMemory = adapterDesc.SharedSystemMemory;
 
     bool isWarpDevice = ((adapterDesc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == DXGI_ADAPTER_FLAG_SOFTWARE) ||
         (_wcsicmp(adapterDesc.Description, L"Microsoft Basic Render Driver") == 0);
@@ -67,10 +69,12 @@ GPUSorting::DeviceInfo GetDeviceInfo(ID3D12Device* device)
     std::cout << "Min wave width:            " << devInfo.SIMDWidth << "\n";
     std::cout << "Max wave width:            " << devInfo.SIMDMaxWidth << "\n";
     std::cout << "Total lanes:               " << devInfo.SIMDLaneCount << "\n";
+    std::cout << "Dedicated video memory:    " << devInfo.dedicatedVideoMemory << "\n";
+    std::cout << "Shared system memory       " << devInfo.sharedSystemMemory << "\n";
     std::cout << "Supports Wave Intrinsics:  " << (devInfo.SupportsWaveIntrinsics ? "Yes" : "No") << "\n";
     std::cout << "Supports 16Bit Types:      " << (devInfo.Supports16BitTypes ? "Yes" : "No") << "\n";
     std::cout << "Supports DeviceRadixSort:  " << (devInfo.SupportsDeviceRadixSort ? "Yes" : "No") << "\n";
-    std::cout << "Supports OneSweep:         " << (devInfo.SupportsOneSweep ? "Yes" : "No") << "\n";
+    std::cout << "Supports OneSweep:         " << (devInfo.SupportsOneSweep ? "Yes" : "No") << "\n\n";
 #endif
 
     return devInfo;
