@@ -191,7 +191,7 @@ inline void GlobalHistExclusiveScanWLT16(uint gtid, uint gid)
     }
     GroupMemoryBarrierWithGroupSync();
         
-    //If RADIX is not a multiple of lanecount
+    //If RADIX is not a power of lanecount
     const uint index = gtid.x + j;
     if (index < RADIX)
     {

@@ -274,13 +274,12 @@ inline void ExclusiveThreadBlockScanFullWLT16(
     {
         g_scan[gtid] = b_passHist[gtid + k * SCAN_DIM + deviceOffset];
         g_scan[gtid] += WavePrefixSum(g_scan[gtid]);
-            
+        GroupMemoryBarrierWithGroupSync();
         if (gtid < WaveGetLaneCount())
         {
             b_passHist[circularLaneShift + k * SCAN_DIM + deviceOffset] =
                 (circularLaneShift ? g_scan[gtid] : 0) + reduction;
         }
-        GroupMemoryBarrierWithGroupSync();
             
         uint offset = laneLog;
         uint j = WaveGetLaneCount();
@@ -342,13 +341,12 @@ inline void ExclusiveThreadBlockScanParitalWLT16(
         g_scan[gtid] = b_passHist[gtid + partitions * SCAN_DIM + deviceOffset];
         g_scan[gtid] += WavePrefixSum(g_scan[gtid]);
     }
-        
+    GroupMemoryBarrierWithGroupSync();
     if (gtid < WaveGetLaneCount() && circularLaneShift < finalPartSize)
     {
         b_passHist[circularLaneShift + partitions * SCAN_DIM + deviceOffset] =
             (circularLaneShift ? g_scan[gtid] : 0) + reduction;
     }
-    GroupMemoryBarrierWithGroupSync();
         
     uint offset = laneLog;
     for (uint j = WaveGetLaneCount(); j < finalPartSize; j <<= laneLog)
