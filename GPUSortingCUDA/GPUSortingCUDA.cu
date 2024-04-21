@@ -10,6 +10,7 @@
 #include "OneSweepDispatcher.cuh"
 #include "DeviceRadixSortDispatcher.cuh"
 #include "CubDispatcher.cuh"
+#include "EmulatedDeadlockingDispatcher.cuh"
 
 int main()
 {

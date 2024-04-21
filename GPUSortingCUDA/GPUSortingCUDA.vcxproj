@@ -14,6 +14,8 @@
     <ClInclude Include="CubDispatcher.cuh" />
     <ClInclude Include="DeviceRadixSort.cuh" />
     <ClInclude Include="DeviceRadixSortDispatcher.cuh" />
+    <ClInclude Include="EmulatedDeadlocking.cuh" />
+    <ClInclude Include="EmulatedDeadlockingDispatcher.cuh" />
     <ClInclude Include="OneSweep.cuh" />
     <ClInclude Include="OneSweepDispatcher.cuh" />
     <ClInclude Include="UtilityKernels.cuh" />
@@ -21,6 +23,7 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="DeviceRadixSort.cu" />
+    <CudaCompile Include="EmulatedDeadlocking.cu" />
     <CudaCompile Include="GPUSortingCUDA.cu" />
     <CudaCompile Include="OneSweep.cu" />
   </ItemGroup>
