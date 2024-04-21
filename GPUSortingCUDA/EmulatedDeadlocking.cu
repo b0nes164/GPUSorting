@@ -19,10 +19,10 @@
 #define G_HIST_PART_SIZE	65536
 #define G_HIST_VEC_SIZE		16384
 
-#define BIN_PART_SIZE       3840
-#define BIN_HISTS_SIZE      2048
+#define BIN_PART_SIZE       7680
+#define BIN_HISTS_SIZE      4096
 #define BIN_SUB_PART_SIZE   480
-#define BIN_WARPS           8
+#define BIN_WARPS           16
 #define BIN_KEYS_PER_THREAD 15
 #define BIN_SUB_PART_START  (WARP_INDEX * BIN_SUB_PART_SIZE)
 #define BIN_PART_START      (partitionIndex * BIN_PART_SIZE)
@@ -33,7 +33,7 @@
 #define FLAG_MASK           3
 
 //To emulate deadlocking
-#define MASK                1
+#define MASK                8191
 #define MAX_SPIN_COUNT      1
 
 __global__ void EmulatedDeadlocking::GlobalHistogram(
@@ -168,9 +168,9 @@ __device__ __forceinline__ void LookbackWithFallback(
 {
     uint32_t spinCount = 0;
     uint32_t reduction = 0;
-    bool lookbackComplete = false;
+    bool lookbackComplete = threadIdx.x < RADIX ? false : true;
     bool warpLookbackComplete = false;
-    uint32_t lookbackIndex = threadIdx.x + partIndex * RADIX;
+    uint32_t lookbackIndex = (threadIdx.x & RADIX_MASK) + partIndex * RADIX;
 
     while (lock < BIN_WARPS)
     {
@@ -200,7 +200,8 @@ __device__ __forceinline__ void LookbackWithFallback(
         //Yes: fallback
         if (deadlockEncountered)
         {
-            histogram[threadIdx.x] = 0;
+            if(threadIdx.x < RADIX)
+                histogram[threadIdx.x] = 0;
             __syncthreads();
             if (!threadIdx.x)
                 deadlockEncountered = 0;
@@ -210,8 +211,12 @@ __device__ __forceinline__ void LookbackWithFallback(
                 atomicAdd((uint32_t*)&histogram[sort[i] >> radixShift & RADIX_MASK], 1);
             __syncthreads();
 
-            const uint32_t reduceOut = atomicCAS((uint32_t*)&passHistogram[threadIdx.x + (lookbackIndex >> RADIX_LOG) * RADIX], 0,
-                FLAG_REDUCTION | histogram[threadIdx.x] << 2);
+            uint32_t reduceOut;
+            if (threadIdx.x < RADIX)
+            {
+                reduceOut = atomicCAS((uint32_t*)&passHistogram[threadIdx.x + (lookbackIndex >> RADIX_LOG) * RADIX], 0,
+                    FLAG_REDUCTION | histogram[threadIdx.x] << 2);
+            }
 
             if (!lookbackComplete)
             {
@@ -257,7 +262,8 @@ __device__ __forceinline__ void LookbackWithFallback(
     }
 
     //post results into shared memory
-    histogram[threadIdx.x] = reduction - exclusiveHistReduction;
+    if(threadIdx.x < RADIX)
+        histogram[threadIdx.x] = reduction - exclusiveHistReduction;
 }
 
 __global__ void EmulatedDeadlocking::EmulatedDeadlockingSpinning(
@@ -336,7 +342,6 @@ __global__ void EmulatedDeadlocking::EmulatedDeadlockingSpinning(
             {
                 __threadfence();
             }
-            __syncthreads();
         }
         else
         {
@@ -375,7 +380,10 @@ __global__ void EmulatedDeadlocking::EmulatedDeadlockingSpinning(
     }
 
     //take advantage of the barrier to read keys and set locks for the lookback
-    const uint32_t exclusiveHistReduction = s_localHistogram[threadIdx.x];
+    uint32_t exclusiveHistReduction;
+    if(threadIdx.x < RADIX)
+        exclusiveHistReduction = s_localHistogram[threadIdx.x];
+
     if (!threadIdx.x)
     {
         s_warpHistograms[0] = 0;
