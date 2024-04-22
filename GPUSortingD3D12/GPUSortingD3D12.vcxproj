@@ -162,6 +162,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="DeviceRadixSort.cpp" />
+    <ClCompile Include="EmulatedDeadlocking.cpp" />
     <ClCompile Include="FFXParallelSort.cpp" />
     <ClCompile Include="GPUSortingD3D12.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Use</PrecompiledHeader>
@@ -181,6 +182,8 @@
     <ClInclude Include="ComputeKernelBase.h" />
     <ClInclude Include="DeviceRadixSort.h" />
     <ClInclude Include="DeviceRadixSortKernels.h" />
+    <ClInclude Include="EmulatedDeadlocking.h" />
+    <ClInclude Include="EmulatedDeadlockingKernels.h" />
     <ClInclude Include="FFXParallelSort.h" />
     <ClInclude Include="FFXParallelSortKernels.h" />
     <ClInclude Include="GPUSortBase.h" />
@@ -188,6 +191,8 @@
     <ClInclude Include="OneSweepKernels.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="GPUSorting.h" />
+    <ClInclude Include="SweepBase.h" />
+    <ClInclude Include="SweepCommonKernels.h" />
     <ClInclude Include="Tests.h" />
     <ClInclude Include="Tuner.h" />
     <ClInclude Include="UtilityKernels.h" />

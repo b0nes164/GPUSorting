@@ -2,25 +2,24 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2024
+ * Copyright Thomas Smith 4/22/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
-#pragma once
 #include "pch.h"
-#include "OneSweep.h"
+#include "EmulatedDeadlocking.h"
 
-OneSweep::OneSweep(
-    winrt::com_ptr<ID3D12Device> _device,
-    GPUSorting::DeviceInfo _deviceInfo,
-    GPUSorting::ORDER sortingOrder,
-    GPUSorting::KEY_TYPE keyType) :
+EmulatedDeadlocking::EmulatedDeadlocking(
+	winrt::com_ptr<ID3D12Device> _device,
+	GPUSorting::DeviceInfo _deviceInfo,
+	GPUSorting::ORDER sortingOrder,
+	GPUSorting::KEY_TYPE keyType) : 
     SweepBase(
         _device,
         _deviceInfo,
         sortingOrder,
         keyType,
-        "OneSweep ",
+        "Emulated Deadlocking ",
         4,
         256,
         1 << 13)
@@ -30,7 +29,7 @@ OneSweep::OneSweep(
     Initialize();
 }
 
-OneSweep::OneSweep(
+EmulatedDeadlocking::EmulatedDeadlocking(
     winrt::com_ptr<ID3D12Device> _device,
     GPUSorting::DeviceInfo _deviceInfo,
     GPUSorting::ORDER sortingOrder,
@@ -42,7 +41,7 @@ OneSweep::OneSweep(
         sortingOrder,
         keyType,
         payloadType,
-        "OneSweep ",
+        "Emulated Deadlocking ",
         4,
         256,
         1 << 13)
@@ -52,20 +51,22 @@ OneSweep::OneSweep(
     Initialize();
 }
 
-OneSweep::~OneSweep()
+EmulatedDeadlocking::~EmulatedDeadlocking()
 {
 }
 
-void OneSweep::InitComputeShaders()
+void EmulatedDeadlocking::InitComputeShaders()
 {
-    const std::filesystem::path path = "Shaders/OneSweep.hlsl";
-    m_initSweep = new SweepCommonKernels::InitSweep(m_device, m_devInfo, m_compileArguments, path);
-    m_globalHist = new SweepCommonKernels::GlobalHist(m_device, m_devInfo, m_compileArguments, path);
-    m_scan = new SweepCommonKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
-    m_digitBinningPass = new OneSweepKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path);
+	const std::filesystem::path path = "Shaders/EmulatedDeadlocking.hlsl";
+	m_initSweep = new SweepCommonKernels::InitSweep(m_device, m_devInfo, m_compileArguments, path);
+	m_globalHist = new SweepCommonKernels::GlobalHist(m_device, m_devInfo, m_compileArguments, path);
+	m_scan = new SweepCommonKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
+	m_clearIndex = new EmulatedDeadlockingKernels::ClearIndex(m_device, m_devInfo, m_compileArguments, path);
+	m_passOne = new EmulatedDeadlockingKernels::EmulatedDeadlockingPassOne(m_device, m_devInfo, m_compileArguments, path);
+    m_passTwo = new EmulatedDeadlockingKernels::EmulatedDeadlockingPassTwo(m_device, m_devInfo, m_compileArguments, path);
 }
 
-void OneSweep::PrepareSortCmdList()
+void EmulatedDeadlocking::PrepareSortCmdList()
 {
     m_initSweep->Dispatch(
         m_cmdList,
@@ -93,7 +94,7 @@ void OneSweep::PrepareSortCmdList()
 
     for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
     {
-        m_digitBinningPass->Dispatch(
+        m_passOne->Dispatch(
             m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),
@@ -104,6 +105,24 @@ void OneSweep::PrepareSortCmdList()
             m_numKeys,
             m_partitions,
             radixShift);
+        UAVBarrierSingle(m_cmdList, m_indexBuffer);
+        m_clearIndex->Dispatch(
+            m_cmdList,
+            m_indexBuffer->GetGPUVirtualAddress());
+
+        m_passTwo->Dispatch(
+            m_cmdList,
+            m_sortBuffer->GetGPUVirtualAddress(),
+            m_altBuffer->GetGPUVirtualAddress(),
+            m_sortPayloadBuffer->GetGPUVirtualAddress(),
+            m_altPayloadBuffer->GetGPUVirtualAddress(),
+            m_indexBuffer->GetGPUVirtualAddress(),
+            m_passHistBuffer,
+            m_numKeys,
+            m_partitions,
+            radixShift);
+
+        UAVBarrierSingle(m_cmdList, m_indexBuffer);
         UAVBarrierSingle(m_cmdList, m_sortBuffer);
         UAVBarrierSingle(m_cmdList, m_sortPayloadBuffer);
         UAVBarrierSingle(m_cmdList, m_altBuffer);

@@ -2,34 +2,36 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2024
+ * Copyright Thomas Smith 4/22/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
 #pragma once
 #include "pch.h"
 #include "SweepBase.h"
-#include "OneSweepKernels.h"
+#include "EmulatedDeadlockingKernels.h"
 
-class OneSweep : public SweepBase
+class EmulatedDeadlocking : public SweepBase
 {
-    OneSweepKernels::DigitBinningPass* m_digitBinningPass;
+    EmulatedDeadlockingKernels::ClearIndex* m_clearIndex;
+    EmulatedDeadlockingKernels::EmulatedDeadlockingPassOne* m_passOne;
+    EmulatedDeadlockingKernels::EmulatedDeadlockingPassTwo* m_passTwo;
 
 public:
-    OneSweep(
+    EmulatedDeadlocking(
         winrt::com_ptr<ID3D12Device> _device,
         GPUSorting::DeviceInfo _deviceInfo,
         GPUSorting::ORDER sortingOrder,
         GPUSorting::KEY_TYPE keyType);
 
-    OneSweep(
+    EmulatedDeadlocking(
         winrt::com_ptr<ID3D12Device> _device,
         GPUSorting::DeviceInfo _deviceInfo,
         GPUSorting::ORDER sortingOrder,
         GPUSorting::KEY_TYPE keyType,
         GPUSorting::PAYLOAD_TYPE payloadType);
 
-    ~OneSweep();
+    ~EmulatedDeadlocking();
 
 protected:
     void InitComputeShaders() override;
