@@ -1,15 +1,16 @@
 /******************************************************************************
  * GPUSorting
- * Emulated Deadlocking Testing
+ * Emulated Deadlocking Testing, used to emulate the behaviour of GPU's without
+ * forward progress guaruntees.
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 4/22/2024
+ * Copyright Thomas Smith 4/22/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
 #include "SweepCommon.hlsl"
 
-#define MASK    1
+#define MASK    8191
 
 [numthreads(4, 1, 1)]
 void ClearIndex(uint3 gtid : SV_GroupThreadID)
@@ -118,6 +119,7 @@ void EmulatedDeadlockingPassOne(uint3 gtid : SV_GroupThreadID)
         }
     
         LookbackWithFallback(gtid.x, partitionIndex, exclusiveHistReduction);
+        GroupMemoryBarrierWithGroupSync();
         
         ScatterKeysShared(offsets, keys);
         GroupMemoryBarrierWithGroupSync();

@@ -164,6 +164,7 @@
     <ClCompile Include="DeviceRadixSort.cpp" />
     <ClCompile Include="EmulatedDeadlocking.cpp" />
     <ClCompile Include="FFXParallelSort.cpp" />
+    <ClCompile Include="ForwardSweep.cpp" />
     <ClCompile Include="GPUSortingD3D12.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Use</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Use</PrecompiledHeader>
@@ -186,9 +187,9 @@
     <ClInclude Include="EmulatedDeadlockingKernels.h" />
     <ClInclude Include="FFXParallelSort.h" />
     <ClInclude Include="FFXParallelSortKernels.h" />
+    <ClInclude Include="ForwardSweep.h" />
     <ClInclude Include="GPUSortBase.h" />
     <ClInclude Include="OneSweep.h" />
-    <ClInclude Include="OneSweepKernels.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="GPUSorting.h" />
     <ClInclude Include="SweepBase.h" />

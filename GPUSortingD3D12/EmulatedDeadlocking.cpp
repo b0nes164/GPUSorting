@@ -62,8 +62,8 @@ void EmulatedDeadlocking::InitComputeShaders()
 	m_globalHist = new SweepCommonKernels::GlobalHist(m_device, m_devInfo, m_compileArguments, path);
 	m_scan = new SweepCommonKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
 	m_clearIndex = new EmulatedDeadlockingKernels::ClearIndex(m_device, m_devInfo, m_compileArguments, path);
-	m_passOne = new EmulatedDeadlockingKernels::EmulatedDeadlockingPassOne(m_device, m_devInfo, m_compileArguments, path);
-    m_passTwo = new EmulatedDeadlockingKernels::EmulatedDeadlockingPassTwo(m_device, m_devInfo, m_compileArguments, path);
+	m_digitPass = new SweepCommonKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path, L"EmulatedDeadlockingPassOne");
+    m_digitPassTwo = new SweepCommonKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path, L"EmulatedDeadlockingPassTwo");
 }
 
 void EmulatedDeadlocking::PrepareSortCmdList()
@@ -94,7 +94,7 @@ void EmulatedDeadlocking::PrepareSortCmdList()
 
     for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
     {
-        m_passOne->Dispatch(
+        m_digitPass->Dispatch(
             m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),
@@ -105,12 +105,14 @@ void EmulatedDeadlocking::PrepareSortCmdList()
             m_numKeys,
             m_partitions,
             radixShift);
+
         UAVBarrierSingle(m_cmdList, m_indexBuffer);
         m_clearIndex->Dispatch(
             m_cmdList,
             m_indexBuffer->GetGPUVirtualAddress());
+        UAVBarrierSingle(m_cmdList, m_indexBuffer);
 
-        m_passTwo->Dispatch(
+        m_digitPassTwo->Dispatch(
             m_cmdList,
             m_sortBuffer->GetGPUVirtualAddress(),
             m_altBuffer->GetGPUVirtualAddress(),

@@ -2,25 +2,24 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/13/2024
+ * Copyright Thomas Smith 4/23/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
-#pragma once
 #include "pch.h"
-#include "OneSweep.h"
+#include "ForwardSweep.h"
 
-OneSweep::OneSweep(
-    winrt::com_ptr<ID3D12Device> _device,
-    GPUSorting::DeviceInfo _deviceInfo,
-    GPUSorting::ORDER sortingOrder,
-    GPUSorting::KEY_TYPE keyType) :
+ForwardSweep::ForwardSweep(
+	winrt::com_ptr<ID3D12Device> _device,
+	GPUSorting::DeviceInfo _deviceInfo,
+	GPUSorting::ORDER sortingOrder,
+	GPUSorting::KEY_TYPE keyType) :
     SweepBase(
         _device,
         _deviceInfo,
         sortingOrder,
         keyType,
-        "OneSweep ",
+        "ForwardSweep ",
         4,
         256,
         1 << 13)
@@ -30,7 +29,7 @@ OneSweep::OneSweep(
     Initialize();
 }
 
-OneSweep::OneSweep(
+ForwardSweep::ForwardSweep(
     winrt::com_ptr<ID3D12Device> _device,
     GPUSorting::DeviceInfo _deviceInfo,
     GPUSorting::ORDER sortingOrder,
@@ -42,7 +41,7 @@ OneSweep::OneSweep(
         sortingOrder,
         keyType,
         payloadType,
-        "OneSweep ",
+        "ForwardSweep ",
         4,
         256,
         1 << 13)
@@ -52,15 +51,15 @@ OneSweep::OneSweep(
     Initialize();
 }
 
-OneSweep::~OneSweep()
+ForwardSweep::~ForwardSweep()
 {
 }
 
-void OneSweep::InitComputeShaders()
+void ForwardSweep::InitComputeShaders()
 {
-    const std::filesystem::path path = "Shaders/OneSweep.hlsl";
+    const std::filesystem::path path = "Shaders/ForwardSweep.hlsl";
     m_initSweep = new SweepCommonKernels::InitSweep(m_device, m_devInfo, m_compileArguments, path);
     m_globalHist = new SweepCommonKernels::GlobalHist(m_device, m_devInfo, m_compileArguments, path);
     m_scan = new SweepCommonKernels::Scan(m_device, m_devInfo, m_compileArguments, path);
-    m_digitPass = new SweepCommonKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path, L"DigitBinningPass");
+    m_digitPass = new SweepCommonKernels::DigitBinningPass(m_device, m_devInfo, m_compileArguments, path, L"ForwardSweep");
 }

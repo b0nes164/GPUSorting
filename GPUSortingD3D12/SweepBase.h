@@ -24,6 +24,7 @@ protected:
     SweepCommonKernels::InitSweep* m_initSweep;
     SweepCommonKernels::GlobalHist* m_globalHist;
     SweepCommonKernels::Scan* m_scan;
+    SweepCommonKernels::DigitBinningPass* m_digitPass;
 
     uint32_t m_globalHistPartitions;
 
@@ -259,6 +260,55 @@ protected:
                 D3D12_HEAP_TYPE_DEFAULT,
                 D3D12_RESOURCE_STATE_COMMON,
                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        }
+    }
+
+    void PrepareSortCmdList() override
+    {
+        m_initSweep->Dispatch(
+            m_cmdList,
+            m_globalHistBuffer->GetGPUVirtualAddress(),
+            m_passHistBuffer->GetGPUVirtualAddress(),
+            m_indexBuffer->GetGPUVirtualAddress(),
+            m_partitions);
+        UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
+
+        m_globalHist->Dispatch(
+            m_cmdList,
+            m_sortBuffer->GetGPUVirtualAddress(),
+            m_globalHistBuffer->GetGPUVirtualAddress(),
+            m_numKeys,
+            m_globalHistPartitions);
+        UAVBarrierSingle(m_cmdList, m_globalHistBuffer);
+
+        m_scan->Dispatch(
+            m_cmdList,
+            m_globalHistBuffer->GetGPUVirtualAddress(),
+            m_passHistBuffer->GetGPUVirtualAddress(),
+            m_partitions,
+            k_radixPasses);
+        UAVBarrierSingle(m_cmdList, m_passHistBuffer);
+
+        for (uint32_t radixShift = 0; radixShift < 32; radixShift += 8)
+        {
+            m_digitPass->Dispatch(
+                m_cmdList,
+                m_sortBuffer->GetGPUVirtualAddress(),
+                m_altBuffer->GetGPUVirtualAddress(),
+                m_sortPayloadBuffer->GetGPUVirtualAddress(),
+                m_altPayloadBuffer->GetGPUVirtualAddress(),
+                m_indexBuffer->GetGPUVirtualAddress(),
+                m_passHistBuffer,
+                m_numKeys,
+                m_partitions,
+                radixShift);
+            UAVBarrierSingle(m_cmdList, m_sortBuffer);
+            UAVBarrierSingle(m_cmdList, m_sortPayloadBuffer);
+            UAVBarrierSingle(m_cmdList, m_altBuffer);
+            UAVBarrierSingle(m_cmdList, m_altPayloadBuffer);
+
+            swap(m_sortBuffer, m_altBuffer);
+            swap(m_sortPayloadBuffer, m_altPayloadBuffer);
         }
     }
 };

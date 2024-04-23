@@ -3,7 +3,7 @@
  * Device Level 8-bit LSD Radix Sort using reduce then scan
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 3/13/2024
+ * Copyright Thomas Smith 3/13/2024
  * https://github.com/b0nes164/GPUSorting
  * 
  ******************************************************************************/

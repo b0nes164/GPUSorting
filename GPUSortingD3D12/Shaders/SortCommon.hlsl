@@ -2,7 +2,7 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 3/13/2024
+ * Copyright Thomas Smith 3/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/

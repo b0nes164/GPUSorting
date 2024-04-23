@@ -9,12 +9,9 @@
 #pragma once
 #include "pch.h"
 #include "SweepBase.h"
-#include "OneSweepKernels.h"
 
 class OneSweep : public SweepBase
 {
-    OneSweepKernels::DigitBinningPass* m_digitBinningPass;
-
 public:
     OneSweep(
         winrt::com_ptr<ID3D12Device> _device,
@@ -33,6 +30,4 @@ public:
 
 protected:
     void InitComputeShaders() override;
-
-    void PrepareSortCmdList() override;
 };
