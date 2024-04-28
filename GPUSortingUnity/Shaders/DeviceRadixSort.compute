@@ -3,19 +3,17 @@
  * Device Level 8-bit LSD Radix Sort using reduce then scan
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 3/13/2024
+ * Copyright Thomas Smith 4/28/2024
  * https://github.com/b0nes164/GPUSorting
  * 
  ******************************************************************************/
+//Compiler Defines
+//#define KEY_UINT KEY_INT KEY_FLOAT
+//#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
+//#define SHOULD_ASCEND
+//#define SORT_PAIRS
+//#define ENABLE_16_BIT
 #include "SortCommon.hlsl"
-
-#pragma use_dxc
-#pragma require wavebasic
-#pragma require waveballot
-#pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
-#pragma multi_compile __ PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
-#pragma multi_compile __ SHOULD_ASCEND
-#pragma multi_compile __ SORT_PAIRS
 
 #pragma kernel InitDeviceRadixSort
 #pragma kernel Upsweep
@@ -25,11 +23,11 @@
 #define US_DIM          128U        //The number of threads in a Upsweep threadblock
 #define SCAN_DIM        128U        //The number of threads in a Scan threadblock
 
-RWStructuredBuffer<uint> b_globalHist; //buffer holding device level offsets for each binning pass
-RWStructuredBuffer<uint> b_passHist; //buffer used to store reduced sums of partition tiles
+RWStructuredBuffer<uint> b_globalHist;  //buffer holding device level offsets for each binning pass
+RWStructuredBuffer<uint> b_passHist;    //buffer used to store reduced sums of partition tiles
 
-groupshared uint g_us[RADIX * 2]; //Shared memory for upsweep
-groupshared uint g_scan[SCAN_DIM]; //Shared memory for the scan
+groupshared uint g_us[RADIX * 2];   //Shared memory for upsweep
+groupshared uint g_scan[SCAN_DIM];  //Shared memory for the scan
 
 //*****************************************************************************
 //INIT KERNEL
@@ -74,7 +72,7 @@ inline void ReduceWriteDigitCounts(uint gtid, uint gid)
 }
 
 //Exclusive scan over digit counts, then atomically add to global hist
-inline void GlobalHistExclusiveScanWGE16(uint gtid, uint gid)
+inline void GlobalHistExclusiveScanWGE16(uint gtid)
 {
     GroupMemoryBarrierWithGroupSync();
         
@@ -98,7 +96,7 @@ inline void GlobalHistExclusiveScanWGE16(uint gtid, uint gid)
     }
 }
 
-inline void GlobalHistExclusiveScanWLT16(uint gtid, uint gid)
+inline void GlobalHistExclusiveScanWLT16(uint gtid)
 {
     const uint globalHistOffset = GlobalHistOffset();
     if (gtid < WaveGetLaneCount())
@@ -170,10 +168,10 @@ void Upsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     ReduceWriteDigitCounts(gtid.x, gid.x);
     
     if (WaveGetLaneCount() >= 16)
-        GlobalHistExclusiveScanWGE16(gtid.x, gid.x);
+        GlobalHistExclusiveScanWGE16(gtid.x);
     
     if (WaveGetLaneCount() < 16)
-        GlobalHistExclusiveScanWLT16(gtid.x, gid.x);
+        GlobalHistExclusiveScanWLT16(gtid.x);
 }
 
 //*****************************************************************************
@@ -280,13 +278,12 @@ inline void ExclusiveThreadBlockScanFullWLT16(
     {
         g_scan[gtid] = b_passHist[gtid + k * SCAN_DIM + deviceOffset];
         g_scan[gtid] += WavePrefixSum(g_scan[gtid]);
-            
+        GroupMemoryBarrierWithGroupSync();
         if (gtid < WaveGetLaneCount())
         {
             b_passHist[circularLaneShift + k * SCAN_DIM + deviceOffset] =
                 (circularLaneShift ? g_scan[gtid] : 0) + reduction;
         }
-        GroupMemoryBarrierWithGroupSync();
             
         uint offset = laneLog;
         uint j = WaveGetLaneCount();
@@ -348,13 +345,12 @@ inline void ExclusiveThreadBlockScanParitalWLT16(
         g_scan[gtid] = b_passHist[gtid + partitions * SCAN_DIM + deviceOffset];
         g_scan[gtid] += WavePrefixSum(g_scan[gtid]);
     }
-        
+    GroupMemoryBarrierWithGroupSync();
     if (gtid < WaveGetLaneCount() && circularLaneShift < finalPartSize)
     {
         b_passHist[circularLaneShift + partitions * SCAN_DIM + deviceOffset] =
             (circularLaneShift ? g_scan[gtid] : 0) + reduction;
     }
-    GroupMemoryBarrierWithGroupSync();
         
     uint offset = laneLog;
     for (uint j = WaveGetLaneCount(); j < finalPartSize; j <<= laneLog)
@@ -413,6 +409,7 @@ inline void ExclusiveThreadBlockScanWLT16(uint gtid, uint gid)
         reduction);
 }
 
+//Scan does not need flattening of gids
 [numthreads(SCAN_DIM, 1, 1)]
 void Scan(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
@@ -435,6 +432,7 @@ inline void LoadThreadBlockReductions(uint gtid, uint gid, uint exclusiveHistRed
     }
 }
 
+//Lock RDNA to 32, we want WGP's not CU's
 [numthreads(D_DIM, 1, 1)]
 void Downsweep(uint3 gtid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {

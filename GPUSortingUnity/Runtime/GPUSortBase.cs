@@ -2,9 +2,9 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 2/28/2024
+ * Copyright Thomas Smith 4/28/2024
  * https://github.com/b0nes164/GPUSorting
- * 
+ *
  ******************************************************************************/
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -12,15 +12,14 @@ using UnityEngine.Assertions;
 
 namespace GPUSorting.Runtime
 {
-    public class GPUSortBase
+    public abstract class GPUSortBase
     {
         protected const int k_radix = 256;
         protected const int k_radixPasses = 4;
-        protected const int k_keysPartitionSize = 3840;
-        protected const int k_pairsPartitionSize = 7680;
+        protected const int k_partitionSize = 3840;
 
         protected const int k_minSize = 1;
-        protected const int k_maxSize = int.MaxValue;
+        protected const int k_maxSize = 65535 * k_partitionSize;
 
         protected ComputeShader m_cs;
 
@@ -33,10 +32,18 @@ namespace GPUSorting.Runtime
         protected LocalKeyword m_ascendKeyword;
         protected LocalKeyword m_sortPairKeyword;
 
-        protected int m_numKeys;
-        protected int m_threadBlocks;
+        protected readonly int k_maxKeysAllocated;
 
-        protected bool m_staticMemory = false;
+        public GPUSortBase(
+            ComputeShader compute,
+            int allocationSize)
+        {
+            Assert.IsTrue(allocationSize > k_minSize && allocationSize < k_maxSize);
+
+            k_maxKeysAllocated = allocationSize;
+            m_cs = compute;
+            InitializeKeywords();
+        }
 
         protected static int DivRoundUp(int x, int y)
         {
@@ -165,54 +172,6 @@ namespace GPUSorting.Runtime
                 _cmd.EnableKeyword(m_cs, m_ascendKeyword);
             else
                 _cmd.DisableKeyword(m_cs, m_ascendKeyword);
-        }
-
-        protected bool UpdateSizeKeysOnly(int inputNumKeys)
-        {
-            if (inputNumKeys != m_numKeys)
-            {
-                m_numKeys = inputNumKeys;
-                m_threadBlocks = DivRoundUp(inputNumKeys, k_keysPartitionSize);
-                return true;
-            }
-            else
-            {
-                if (!m_staticMemory)
-                {
-                    int t = DivRoundUp(inputNumKeys, k_keysPartitionSize);
-                    if (t != m_threadBlocks)
-                    {
-                        m_numKeys = inputNumKeys;
-                        m_threadBlocks = t;
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        protected bool UpdateSizePairs(int inputNumKeys)
-        {
-            if (inputNumKeys != m_numKeys)
-            {
-                m_numKeys = inputNumKeys;
-                m_threadBlocks = DivRoundUp(inputNumKeys, k_pairsPartitionSize);
-                return true;
-            }
-            else
-            {
-                if (!m_staticMemory)
-                {
-                    int t = DivRoundUp(inputNumKeys, k_pairsPartitionSize);
-                    if (t != m_threadBlocks)
-                    {
-                        m_numKeys = inputNumKeys;
-                        m_threadBlocks = t;
-                        return true;
-                    }
-                }
-            }
-            return false;
         }
     }
 }

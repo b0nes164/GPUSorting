@@ -2,25 +2,28 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 3/13/2024
+ * Copyright Thomas Smith 4/28/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
-//Compiler Defines
-//#define KEY_UINT KEY_INT KEY_FLOAT
-//#define PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
-//#define SHOULD_ASCEND
-//#define SORT_PAIRS
-//#define ENABLE_16_BIT
+#pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
+#pragma multi_compile __ PAYLOAD_UINT PAYLOAD_INT PAYLOAD_FLOAT
+#pragma multi_compile __ SHOULD_ASCEND
+#pragma multi_compile __ SORT_PAIRS
 
-#if defined(SORT_PAIRS)
-#define PART_SIZE           7680U   //size of a partition tile
-#define D_DIM               512U    //The number of threads in a DigitBinningPass or DownSweep kernel
-#else
-#define PART_SIZE           3840U
-#define D_DIM               256U
+#pragma use_dxc
+#pragma require wavebasic
+#pragma require waveballot
+#if defined(ENABLE_16_BIT)
+#pragma require Native16Bit
 #endif
 
+#define KEYS_PER_THREAD     15U 
+#define D_DIM               256U
+#define PART_SIZE           3840U
+#define D_TOTAL_SMEM        4096U
+
+#define MAX_DISPATCH_DIM    65535U  //The max value of any given dispatch dimension
 #define RADIX               256U    //Number of digit bins
 #define RADIX_MASK          255U    //Mask of digit bins
 #define HALF_RADIX          128U    //For smaller waves where bit packing is necessary
@@ -28,14 +31,7 @@
 #define RADIX_LOG           8U      //log2(RADIX)
 #define RADIX_PASSES        4U      //(Key width) / RADIX_LOG
 
-#define KEYS_PER_THREAD     15U     //The number of keys per thread in a DigitBinningPass or DownSweep kernel
-#if defined(SORT_PAIRS)
-#define MAX_D_SMEM          8192U   //shared memory for a DigitBinningPass or DownSweep kernel
-#else
-#define MAX_D_SMEM          4096U   //shared memory for a DigitBinningPass or DownSweep kernel
-#endif
-
-cbuffer cbParallelSort : register(b0)
+cbuffer cbGpuSorting : register(b0)
 {
     uint e_numKeys;
     uint e_radixShift;
@@ -44,28 +40,28 @@ cbuffer cbParallelSort : register(b0)
 };
 
 #if defined(KEY_UINT)
-RWStructuredBuffer<uint> b_sort         : register(u0);
-RWStructuredBuffer<uint> b_alt          : register(u1);
+RWStructuredBuffer<uint> b_sort;
+RWStructuredBuffer<uint> b_alt;
 #elif defined(KEY_INT)
-RWStructuredBuffer<int> b_sort          : register(u0);
-RWStructuredBuffer<int> b_alt           : register(u1);
+RWStructuredBuffer<int> b_sort;
+RWStructuredBuffer<int> b_alt;
 #elif defined(KEY_FLOAT)
-RWStructuredBuffer<float> b_sort        : register(u0);
-RWStructuredBuffer<float> b_alt         : register(u1);
+RWStructuredBuffer<float> b_sort;
+RWStructuredBuffer<float> b_alt;
 #endif
 
 #if defined(PAYLOAD_UINT)
-RWStructuredBuffer<uint> b_sortPayload  : register(u2);
-RWStructuredBuffer<uint> b_altPayload   : register(u3);
+RWStructuredBuffer<uint> b_sortPayload;
+RWStructuredBuffer<uint> b_altPayload;
 #elif defined(PAYLOAD_INT)
-RWStructuredBuffer<int> b_sortPayload   : register(u2);
-RWStructuredBuffer<int> b_altPayload    : register(u3);
+RWStructuredBuffer<int> b_sortPayload;
+RWStructuredBuffer<int> b_altPayload;
 #elif defined(PAYLOAD_FLOAT)
-RWStructuredBuffer<float> b_sortPayload : register(u2);
-RWStructuredBuffer<float> b_altPayload  : register(u3);
+RWStructuredBuffer<float> b_sortPayload;
+RWStructuredBuffer<float> b_altPayload;
 #endif
 
-groupshared uint g_d[MAX_D_SMEM];       //Shared memory for DigitBinningPass and DownSweep kernels
+groupshared uint g_d[D_TOTAL_SMEM]; //Shared memory for DigitBinningPass and DownSweep kernels
 
 struct KeyStruct
 {
@@ -196,7 +192,7 @@ inline uint WaveHistsSizeWGE16()
 
 inline uint WaveHistsSizeWLT16()
 {
-    return MAX_D_SMEM;
+    return D_TOTAL_SMEM;
 }
 
 //*****************************************************************************
@@ -607,16 +603,14 @@ inline void WritePayload(uint deviceIndex, uint groupSharedIndex)
 //KEYS ONLY
 inline void ScatterKeysOnlyDeviceAscending(uint gtid)
 {
-    [unroll(KEYS_PER_THREAD)]
     for (uint i = gtid; i < PART_SIZE; i += D_DIM)
         WriteKey(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i, i);
 }
 
 inline void ScatterKeysOnlyDeviceDescending(uint gtid)
 {
-    if(e_radixShift == 24)
+    if (e_radixShift == 24)
     {
-        [unroll(KEYS_PER_THREAD)]
         for (uint i = gtid; i < PART_SIZE; i += D_DIM)
             WriteKey(DescendingIndex(g_d[ExtractDigit(g_d[i]) + PART_SIZE] + i), i);
     }
@@ -766,7 +760,6 @@ inline void ScatterDevice(
 //KEYS ONLY
 inline void ScatterKeysOnlyDevicePartialAscending(uint gtid, uint finalPartSize)
 {
-    [unroll(KEYS_PER_THREAD)]
     for (uint i = gtid; i < PART_SIZE; i += D_DIM)
     {
         if (i < finalPartSize)
@@ -778,7 +771,6 @@ inline void ScatterKeysOnlyDevicePartialDescending(uint gtid, uint finalPartSize
 {
     if (e_radixShift == 24)
     {
-        [unroll(KEYS_PER_THREAD)]
         for (uint i = gtid; i < PART_SIZE; i += D_DIM)
         {
             if (i < finalPartSize)
@@ -810,7 +802,7 @@ inline void ScatterPairsKeyPhaseAscendingPartial(
     [unroll]
     for (uint i = 0, t = gtid; i < KEYS_PER_THREAD; ++i, t += D_DIM)
     {
-        if(t < finalPartSize)
+        if (t < finalPartSize)
         {
             digits.d[i] = ExtractDigit(g_d[t]);
             WriteKey(g_d[digits.d[i] + PART_SIZE] + t, t);

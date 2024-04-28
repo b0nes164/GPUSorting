@@ -2,9 +2,9 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Author:  Thomas Smith 2/28/2024
+ * Copyright Thomas Smith 4/28/2024
  * https://github.com/b0nes164/GPUSorting
- * 
+ *
  ******************************************************************************/
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -14,140 +14,110 @@ namespace GPUSorting.Runtime
 {
     public class OneSweep : GPUSortBase
     {
-        private readonly int m_kernelInit = -1;
-        private readonly int m_kernelGlobalHist = -1;
-        private readonly int m_kernelScan = -1;
-        private readonly int m_digitBinningPass = -1;
+        protected const int k_globalHistPartSize = 32768;
 
-        protected readonly bool m_isValid;
-        protected readonly bool m_staticKeysOnly;
-        protected readonly int m_maxElements;
-        public bool Valid => m_isValid;
+        protected int m_kernelInit = -1;
+        protected int m_kernelGlobalHist = -1;
+        protected int m_kernelScan = -1;
+        protected int m_digitBinningPass = -1;
 
-        public OneSweep(ComputeShader compute)
+        protected readonly bool k_keysOnly;
+
+        //keys
+        public OneSweep(
+            ComputeShader compute,
+            int allocationSize,
+            ref ComputeBuffer tempKeyBuffer,
+            ref ComputeBuffer tempGlobalHistBuffer,
+            ref ComputeBuffer tempPassHistBuffer,
+            ref ComputeBuffer tempIndexBuffer) :
+            base(
+                compute,
+                allocationSize)
         {
-            m_cs = compute;
-            m_numKeys = 0;
+            InitKernels();
+            m_cs.DisableKeyword(m_sortPairKeyword);
+            k_keysOnly = true;
+
+            tempKeyBuffer?.Dispose();
+            tempGlobalHistBuffer?.Dispose();
+            tempPassHistBuffer?.Dispose();
+            tempIndexBuffer?.Dispose();
+
+            tempKeyBuffer = new ComputeBuffer(k_maxKeysAllocated, 4);
+            tempGlobalHistBuffer = new ComputeBuffer(k_radix * k_radixPasses, 4);
+            tempPassHistBuffer = new ComputeBuffer(k_radix * DivRoundUp(k_maxKeysAllocated, k_partitionSize) * k_radixPasses, 4);
+            tempIndexBuffer = new ComputeBuffer(k_radixPasses, sizeof(uint));
+        }
+
+        //pairs
+        public OneSweep(
+            ComputeShader compute,
+            int allocationSize,
+            ref ComputeBuffer tempKeyBuffer,
+            ref ComputeBuffer tempPayloadBuffer,
+            ref ComputeBuffer tempGlobalHistBuffer,
+            ref ComputeBuffer tempPassHistBuffer,
+            ref ComputeBuffer tempIndexBuffer) :
+            base(
+                compute,
+                allocationSize)
+        {
+            InitKernels();
+            m_cs.EnableKeyword(m_sortPairKeyword);
+            k_keysOnly = false;
+
+            tempKeyBuffer?.Dispose();
+            tempPayloadBuffer?.Dispose();
+            tempGlobalHistBuffer?.Dispose();
+            tempPassHistBuffer?.Dispose();
+            tempIndexBuffer?.Dispose();
+
+            tempKeyBuffer = new ComputeBuffer(k_maxKeysAllocated, 4);
+            tempPayloadBuffer = new ComputeBuffer(k_maxKeysAllocated, 4);
+            tempGlobalHistBuffer = new ComputeBuffer(k_radix * k_radixPasses, 4);
+            tempPassHistBuffer = new ComputeBuffer(k_radix * DivRoundUp(k_maxKeysAllocated, k_partitionSize) * k_radixPasses, 4);
+            tempIndexBuffer = new ComputeBuffer(k_radixPasses, sizeof(uint));
+        }
+
+        protected virtual void InitKernels()
+        {
+            bool isValid;
             if (m_cs)
             {
-                m_kernelInit = m_cs.FindKernel("InitOneSweep");
+                m_kernelInit = m_cs.FindKernel("InitSweep");
                 m_kernelGlobalHist = m_cs.FindKernel("GlobalHistogram");
                 m_kernelScan = m_cs.FindKernel("Scan");
                 m_digitBinningPass = m_cs.FindKernel("DigitBinningPass");
             }
 
-            m_isValid = m_kernelInit >= 0 &&
+            isValid = m_kernelInit >= 0 &&
                         m_kernelGlobalHist >= 0 &&
                         m_kernelScan >= 0 &&
                         m_digitBinningPass >= 0;
 
-            if (m_isValid)
+            if (isValid)
             {
                 if (!m_cs.IsSupported(m_kernelInit) ||
                     !m_cs.IsSupported(m_kernelGlobalHist) ||
                     !m_cs.IsSupported(m_kernelScan) ||
                     !m_cs.IsSupported(m_digitBinningPass))
                 {
-                    m_isValid = false;
+                    isValid = false;
                 }
             }
 
-            if (m_isValid)
-                InitializeKeywords();
-        }
-
-        //tempBuffer0 = alt
-        //tempBuffer1 = altPayload
-        //tempBuffer2 = passHist
-        //tempBuffer3 = globalHist
-        public OneSweep(
-            ComputeShader compute,
-            int maxElements,
-            ref ComputeBuffer tempBuffer0,
-            ref ComputeBuffer tempBuffer2,
-            ref ComputeBuffer tempBuffer3,
-            ref ComputeBuffer tempBuffer4) : this(compute)
-        {
-            Assert.IsTrue(
-                maxElements >= k_minSize &&
-                maxElements <= k_maxSize);
-            m_staticMemory = true;
-            m_staticKeysOnly = true;
-            m_maxElements = maxElements;
-            UpdateSizeKeysOnly(maxElements);
-            UpdateResources(
-                ref tempBuffer0,
-                ref tempBuffer2,
-                ref tempBuffer3,
-                ref tempBuffer4);
-        }
-
-        public OneSweep(
-            ComputeShader compute,
-            int maxElements,
-            ref ComputeBuffer tempBuffer0,
-            ref ComputeBuffer tempBuffer1,
-            ref ComputeBuffer tempBuffer2,
-            ref ComputeBuffer tempBuffer3,
-            ref ComputeBuffer tempBuffer4) : this(compute)
-        {
-            Assert.IsTrue(
-                maxElements >= k_minSize &&
-                maxElements <= k_maxSize);
-            m_staticMemory = true;
-            m_staticKeysOnly = false;
-            m_maxElements = maxElements;
-            UpdateSizePairs(maxElements);
-            UpdateResources(
-                ref tempBuffer0,
-                ref tempBuffer1,
-                ref tempBuffer2,
-                ref tempBuffer3,
-                ref tempBuffer4);
-        }
-
-        private void UpdateResources(
-            ref ComputeBuffer _altBuffer,
-            ref ComputeBuffer _passHistBuffer,
-            ref ComputeBuffer _globalHistBuffer,
-            ref ComputeBuffer _indexBuffer)
-        {
-            _altBuffer?.Dispose();
-            _passHistBuffer?.Dispose();
-            _globalHistBuffer?.Dispose();
-            _indexBuffer?.Dispose();
-
-            _altBuffer = new ComputeBuffer(m_numKeys, 4);
-            _passHistBuffer = new ComputeBuffer(k_radix * k_radixPasses * m_threadBlocks, 4);
-            _globalHistBuffer = new ComputeBuffer(k_radix * k_radixPasses, 4);
-            _indexBuffer = new ComputeBuffer(k_radixPasses, sizeof(uint));
-        }
-
-        private void UpdateResources(
-            ref ComputeBuffer _altBuffer,
-            ref ComputeBuffer _altPayloadBuffer,
-            ref ComputeBuffer _passHistBuffer,
-            ref ComputeBuffer _globalHistBuffer,
-            ref ComputeBuffer _indexBuffer)
-        {
-            UpdateResources(
-                ref _altBuffer,
-                ref _passHistBuffer,
-                ref _globalHistBuffer,
-                ref _indexBuffer);
-
-            _altPayloadBuffer?.Dispose();
-            _altPayloadBuffer = new ComputeBuffer(m_numKeys, 4);
+            Assert.IsTrue(isValid);
         }
 
         private void SetStaticRootParameters(
+            int numKeys,
             ComputeBuffer _sortBuffer,
             ComputeBuffer _passHistBuffer,
             ComputeBuffer _globalHistBuffer,
             ComputeBuffer _indexBuffer)
         {
-            m_cs.SetInt("e_numKeys", m_numKeys);
-            m_cs.SetInt("e_threadBlocks", m_threadBlocks);
+            m_cs.SetInt("e_numKeys", numKeys);
 
             m_cs.SetBuffer(m_kernelInit, "b_passHist", _passHistBuffer);
             m_cs.SetBuffer(m_kernelInit, "b_globalHist", _globalHistBuffer);
@@ -164,14 +134,14 @@ namespace GPUSorting.Runtime
         }
 
         private void SetStaticRootParameters(
+            int numKeys,
             CommandBuffer _cmd,
             ComputeBuffer _sortBuffer,
             ComputeBuffer _passHistBuffer,
             ComputeBuffer _globalHistBuffer,
             ComputeBuffer _indexBuffer)
         {
-            _cmd.SetComputeIntParam(m_cs, "e_numKeys", m_numKeys);
-            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", m_threadBlocks);
+            _cmd.SetComputeIntParam(m_cs, "e_numKeys", numKeys);
 
             _cmd.SetComputeBufferParam(m_cs, m_kernelInit, "b_passHist", _passHistBuffer);
             _cmd.SetComputeBufferParam(m_cs, m_kernelInit, "b_globalHist", _globalHistBuffer);
@@ -187,53 +157,73 @@ namespace GPUSorting.Runtime
             _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_index", _indexBuffer);
         }
 
-        private void Dispatch(ComputeBuffer _toSort, ComputeBuffer _alt)
+        private void Dispatch(
+            int numThreadBlocks,
+            int globalHistThreadBlocks,
+            ComputeBuffer _toSort,
+            ComputeBuffer _alt)
         {
+            m_cs.SetInt("e_threadBlocks", numThreadBlocks);
             m_cs.Dispatch(m_kernelInit, 256, 1, 1);
-            m_cs.Dispatch(m_kernelGlobalHist, m_threadBlocks, 1, 1);
-            m_cs.Dispatch(m_kernelScan, k_radix, 1, 1);
 
+            m_cs.SetInt("e_threadBlocks", globalHistThreadBlocks);
+            m_cs.Dispatch(m_kernelGlobalHist, globalHistThreadBlocks, 1, 1);
+
+            m_cs.SetInt("e_threadBlocks", numThreadBlocks);
+            m_cs.Dispatch(m_kernelScan, k_radixPasses, 1, 1);
             for (int radixShift = 0; radixShift < 32; radixShift += 8)
             {
                 m_cs.SetInt("e_radixShift", radixShift);
                 m_cs.SetBuffer(m_digitBinningPass, "b_sort", _toSort);
                 m_cs.SetBuffer(m_digitBinningPass, "b_alt", _alt);
-                m_cs.Dispatch(m_digitBinningPass, m_threadBlocks, 1, 1);
+                m_cs.Dispatch(m_digitBinningPass, numThreadBlocks, 1, 1);
 
                 (_toSort, _alt) = (_alt, _toSort);
             }
         }
 
         private void Dispatch(
+            int numThreadBlocks,
+            int globalHistThreadBlocks,
             CommandBuffer _cmd,
             ComputeBuffer _toSort,
             ComputeBuffer _alt)
         {
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", numThreadBlocks);
             _cmd.DispatchCompute(m_cs, m_kernelInit, 256, 1, 1);
-            _cmd.DispatchCompute(m_cs, m_kernelGlobalHist, m_threadBlocks, 1, 1);
-            _cmd.DispatchCompute(m_cs, m_kernelScan, k_radix, 1, 1);
 
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", globalHistThreadBlocks);
+            _cmd.DispatchCompute(m_cs, m_kernelGlobalHist, globalHistThreadBlocks, 1, 1);
+
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", numThreadBlocks);
+            _cmd.DispatchCompute(m_cs, m_kernelScan, k_radixPasses, 1, 1);
             for (int radixShift = 0; radixShift < 32; radixShift += 8)
             {
                 _cmd.SetComputeIntParam(m_cs, "e_radixShift", radixShift);
                 _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_sort", _toSort);
                 _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_alt", _alt);
-                _cmd.DispatchCompute(m_cs, m_digitBinningPass, m_threadBlocks, 1, 1);
+                _cmd.DispatchCompute(m_cs, m_digitBinningPass, numThreadBlocks, 1, 1);
 
                 (_toSort, _alt) = (_alt, _toSort);
             }
         }
 
         private void Dispatch(
+            int numThreadBlocks,
+            int globalHistThreadBlocks,
             ComputeBuffer _toSort,
             ComputeBuffer _toSortPayload,
             ComputeBuffer _alt,
             ComputeBuffer _altPayload)
         {
+            m_cs.SetInt("e_threadBlocks", numThreadBlocks);
             m_cs.Dispatch(m_kernelInit, 256, 1, 1);
-            m_cs.Dispatch(m_kernelGlobalHist, m_threadBlocks, 1, 1);
-            m_cs.Dispatch(m_kernelScan, k_radix, 1, 1);
 
+            m_cs.SetInt("e_threadBlocks", globalHistThreadBlocks);
+            m_cs.Dispatch(m_kernelGlobalHist, globalHistThreadBlocks, 1, 1);
+
+            m_cs.SetInt("e_threadBlocks", numThreadBlocks);
+            m_cs.Dispatch(m_kernelScan, k_radixPasses, 1, 1);
             for (int radixShift = 0; radixShift < 32; radixShift += 8)
             {
                 m_cs.SetInt("e_radixShift", radixShift);
@@ -241,7 +231,7 @@ namespace GPUSorting.Runtime
                 m_cs.SetBuffer(m_digitBinningPass, "b_sortPayload", _toSortPayload);
                 m_cs.SetBuffer(m_digitBinningPass, "b_alt", _alt);
                 m_cs.SetBuffer(m_digitBinningPass, "b_altPayload", _altPayload);
-                m_cs.Dispatch(m_digitBinningPass, m_threadBlocks, 1, 1);
+                m_cs.Dispatch(m_digitBinningPass, numThreadBlocks, 1, 1);
 
                 (_toSort, _alt) = (_alt, _toSort);
                 (_toSortPayload, _altPayload) = (_altPayload, _toSortPayload);
@@ -249,268 +239,191 @@ namespace GPUSorting.Runtime
         }
 
         private void Dispatch(
+            int numThreadBlocks,
+            int globalHistThreadBlocks,
             CommandBuffer _cmd,
             ComputeBuffer _toSort,
             ComputeBuffer _toSortPayload,
             ComputeBuffer _alt,
             ComputeBuffer _altPayload)
         {
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", numThreadBlocks);
             _cmd.DispatchCompute(m_cs, m_kernelInit, 256, 1, 1);
-            _cmd.DispatchCompute(m_cs, m_kernelGlobalHist, m_threadBlocks, 1, 1);
-            _cmd.DispatchCompute(m_cs, m_kernelScan, k_radix, 1, 1);
 
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", globalHistThreadBlocks);
+            _cmd.DispatchCompute(m_cs, m_kernelGlobalHist, globalHistThreadBlocks, 1, 1);
+
+            _cmd.SetComputeIntParam(m_cs, "e_threadBlocks", numThreadBlocks);
+            _cmd.DispatchCompute(m_cs, m_kernelScan, k_radixPasses, 1, 1);
             for (int radixShift = 0; radixShift < 32; radixShift += 8)
             {
                 _cmd.SetComputeIntParam(m_cs, "e_radixShift", radixShift);
                 _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_sort", _toSort);
                 _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_sortPayload", _toSortPayload);
                 _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_alt", _alt);
-                _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_alt", _altPayload);
-                _cmd.DispatchCompute(m_cs, m_digitBinningPass, m_threadBlocks, 1, 1);
+                _cmd.SetComputeBufferParam(m_cs, m_digitBinningPass, "b_altPayload", _altPayload);
+                _cmd.DispatchCompute(m_cs, m_digitBinningPass, numThreadBlocks, 1, 1);
 
                 (_toSort, _alt) = (_alt, _toSort);
                 (_toSortPayload, _altPayload) = (_altPayload, _toSortPayload);
             }
         }
 
-        //Resizeable
+        private void AssertChecksKeys(int _inputSize, System.Type _keyType)
+        {
+            Assert.IsTrue(k_keysOnly);
+            Assert.IsTrue(_inputSize > k_minSize && _inputSize <= k_maxKeysAllocated);
+            Assert.IsTrue(
+                _keyType == typeof(uint) ||
+                _keyType == typeof(float) ||
+                _keyType == typeof(int));
+        }
+
+        private void AssertChecksPairs(int _inputSize, System.Type _keyType, System.Type _payloadType)
+        {
+            Assert.IsFalse(k_keysOnly);
+            Assert.IsTrue(_inputSize > k_minSize && _inputSize <= k_maxKeysAllocated);
+            Assert.IsTrue(
+                _keyType == typeof(uint) ||
+                _keyType == typeof(float) ||
+                _keyType == typeof(int));
+            Assert.IsTrue(
+                _payloadType == typeof(uint) ||
+                _payloadType == typeof(float) ||
+                _payloadType == typeof(int));
+        }
+
         //Keys only
         public void Sort(
-            int inputSize,
+            int sortSize,
             ComputeBuffer toSort,
-            ref ComputeBuffer tempBuffer0,
-            ref ComputeBuffer tempBuffer2,
-            ref ComputeBuffer tempBuffer3,
-            ref ComputeBuffer tempBuffer4,
+            ComputeBuffer tempKeyBuffer,
+            ComputeBuffer tempGlobalHistBuffer,
+            ComputeBuffer tempPassHistBuffer,
+            ComputeBuffer tempIndexBuffer,
             System.Type keyType,
             bool shouldAscend)
         {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == false &&
-                inputSize >= k_minSize &&
-                inputSize <= k_maxSize);
+            AssertChecksKeys(sortSize, keyType);
             SetKeyTypeKeywords(keyType);
             SetAscendingKeyWords(shouldAscend);
-            m_cs.DisableKeyword(m_sortPairKeyword);
-            if (UpdateSizeKeysOnly(inputSize))
-            {
-                UpdateResources(
-                ref tempBuffer0,
-                ref tempBuffer2,
-                ref tempBuffer3,
-                ref tempBuffer4);
-            }
+            int threadBlocks = DivRoundUp(sortSize, k_partitionSize);
+            int globalHistThreadBlocks = DivRoundUp(sortSize, k_globalHistPartSize);
             SetStaticRootParameters(
+                sortSize,
                 toSort,
-                tempBuffer2,
-                tempBuffer3,
-                tempBuffer4);
-            Dispatch(toSort, tempBuffer0);
+                tempPassHistBuffer,
+                tempGlobalHistBuffer,
+                tempIndexBuffer);
+            Dispatch(
+                threadBlocks,
+                globalHistThreadBlocks,
+                toSort,
+                tempKeyBuffer);
         }
 
-        //Static memory allocation
-        //Keys only
-        public void Sort(
-            int inputSize,
-            ComputeBuffer toSort,
-            ComputeBuffer tempBuffer0,
-            ComputeBuffer tempBuffer2,
-            ComputeBuffer tempBuffer3,
-            ComputeBuffer tempBuffer4,
-            System.Type keyType,
-            bool shouldAscend)
-        {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == true &&
-                m_staticKeysOnly == true &&
-                inputSize <= m_maxElements);
-
-            if (inputSize > 0)
-            {
-                SetKeyTypeKeywords(keyType);
-                SetAscendingKeyWords(shouldAscend);
-                m_cs.DisableKeyword(m_sortPairKeyword);
-                UpdateSizeKeysOnly(inputSize);
-                SetStaticRootParameters(
-                    toSort,
-                    tempBuffer2,
-                    tempBuffer3,
-                    tempBuffer4);
-                Dispatch(toSort, tempBuffer0);
-            }
-        }
-
-        //Static memory allocation
         //Keys only
         //Command queue
         public void Sort(
             CommandBuffer cmd,
-            int inputSize,
+            int sortSize,
             ComputeBuffer toSort,
-            ComputeBuffer tempBuffer0,
-            ComputeBuffer tempBuffer2,
-            ComputeBuffer tempBuffer3,
-            ComputeBuffer tempBuffer4,
+            ComputeBuffer tempKeyBuffer,
+            ComputeBuffer tempGlobalHistBuffer,
+            ComputeBuffer tempPassHistBuffer,
+            ComputeBuffer tempIndexBuffer,
             System.Type keyType,
             bool shouldAscend)
         {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == true &&
-                m_staticKeysOnly == true &&
-                inputSize <= m_maxElements);
-
-            if (inputSize > 0)
-            {
-                SetKeyTypeKeywords(cmd, keyType);
-                SetAscendingKeyWords(cmd, shouldAscend);
-                cmd.DisableKeyword(m_cs, m_sortPairKeyword);
-                UpdateSizeKeysOnly(inputSize);
-                SetStaticRootParameters(
-                    cmd,
-                    toSort,
-                    tempBuffer2,
-                    tempBuffer3,
-                    tempBuffer4);
-                Dispatch(cmd, toSort, tempBuffer0);
-            }
+            AssertChecksKeys(sortSize, keyType);
+            SetKeyTypeKeywords(cmd, keyType);
+            SetAscendingKeyWords(cmd, shouldAscend);
+            int threadBlocks = DivRoundUp(sortSize, k_partitionSize);
+            int globalHistThreadBlocks = DivRoundUp(sortSize, k_globalHistPartSize);
+            SetStaticRootParameters(
+                sortSize,
+                cmd,
+                toSort,
+                tempPassHistBuffer,
+                tempGlobalHistBuffer,
+                tempIndexBuffer);
+            Dispatch(
+                threadBlocks,
+                globalHistThreadBlocks,
+                cmd,
+                toSort,
+                tempKeyBuffer);
         }
 
-        //Resizeable
-        //Pairs
         public void Sort(
-            int inputSize,
+            int sortSize,
             ComputeBuffer toSort,
             ComputeBuffer toSortPayload,
-            ref ComputeBuffer tempBuffer0,
-            ref ComputeBuffer tempBuffer1,
-            ref ComputeBuffer tempBuffer2,
-            ref ComputeBuffer tempBuffer3,
-            ref ComputeBuffer tempBuffer4,
+            ComputeBuffer tempKeyBuffer,
+            ComputeBuffer tempPayloadBuffer,
+            ComputeBuffer tempGlobalHistBuffer,
+            ComputeBuffer tempPassHistBuffer,
+            ComputeBuffer tempIndexBuffer,
             System.Type keyType,
             System.Type payloadType,
             bool shouldAscend)
         {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == false &&
-                toSort.count == toSortPayload.count &&
-                inputSize >= k_minSize &&
-                inputSize <= k_maxSize);
-
+            AssertChecksPairs(sortSize, keyType, payloadType);
             SetKeyTypeKeywords(keyType);
             SetPayloadTypeKeywords(payloadType);
             SetAscendingKeyWords(shouldAscend);
-            m_cs.EnableKeyword(m_sortPairKeyword);
-            if (UpdateSizePairs(inputSize))
-            {
-                UpdateResources(
-                ref tempBuffer0,
-                ref tempBuffer1,
-                ref tempBuffer2,
-                ref tempBuffer3,
-                ref tempBuffer4);
-            }
+            int threadBlocks = DivRoundUp(sortSize, k_partitionSize);
+            int globalHistThreadBlocks = DivRoundUp(sortSize, k_globalHistPartSize);
             SetStaticRootParameters(
+                sortSize,
                 toSort,
-                tempBuffer2,
-                tempBuffer3,
-                tempBuffer4);
+                tempPassHistBuffer,
+                tempGlobalHistBuffer,
+                tempIndexBuffer);
             Dispatch(
+                threadBlocks,
+                globalHistThreadBlocks,
                 toSort,
                 toSortPayload,
-                tempBuffer0,
-                tempBuffer1);
+                tempKeyBuffer,
+                tempPayloadBuffer);
         }
 
-        //Static memory allocation
-        //Pairs
-        public void Sort(
-            int inputSize,
-            ComputeBuffer toSort,
-            ComputeBuffer toSortPayload,
-            ComputeBuffer tempBuffer0,
-            ComputeBuffer tempBuffer1,
-            ComputeBuffer tempBuffer2,
-            ComputeBuffer tempBuffer3,
-            ComputeBuffer tempBuffer4,
-            System.Type keyType,
-            System.Type payloadType,
-            bool shouldAscend)
-        {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == true &&
-                m_staticKeysOnly == false &&
-                toSort.count == toSortPayload.count &&
-                inputSize <= m_maxElements);
-
-            if (inputSize > 0)
-            {
-                SetKeyTypeKeywords(keyType);
-                SetPayloadTypeKeywords(payloadType);
-                SetAscendingKeyWords(shouldAscend);
-                m_cs.EnableKeyword(m_sortPairKeyword);
-                UpdateSizePairs(inputSize);
-                SetStaticRootParameters(
-                    toSort,
-                    tempBuffer2,
-                    tempBuffer3,
-                    tempBuffer4);
-                Dispatch(
-                    toSort,
-                    toSortPayload,
-                    tempBuffer0,
-                    tempBuffer1);
-            }
-        }
-
-        //Static memory allocation
-        //Pairs
-        //Command queue
         public void Sort(
             CommandBuffer cmd,
-            int inputSize,
+            int sortSize,
             ComputeBuffer toSort,
             ComputeBuffer toSortPayload,
-            ComputeBuffer tempBuffer0,
-            ComputeBuffer tempBuffer1,
-            ComputeBuffer tempBuffer2,
-            ComputeBuffer tempBuffer3,
-            ComputeBuffer tempBuffer4,
+            ComputeBuffer tempKeyBuffer,
+            ComputeBuffer tempPayloadBuffer,
+            ComputeBuffer tempGlobalHistBuffer,
+            ComputeBuffer tempPassHistBuffer,
+            ComputeBuffer tempIndexBuffer,
             System.Type keyType,
             System.Type payloadType,
             bool shouldAscend)
         {
-            Assert.IsTrue(
-                Valid &&
-                m_staticMemory == true &&
-                m_staticKeysOnly == false &&
-                toSort.count == toSortPayload.count &&
-                inputSize <= m_maxElements);
-
-            if (inputSize > 0)
-            {
-                SetKeyTypeKeywords(cmd, keyType);
-                SetPayloadTypeKeywords(cmd, payloadType);
-                SetAscendingKeyWords(cmd, shouldAscend);
-                cmd.EnableKeyword(m_cs, m_sortPairKeyword);
-                UpdateSizeKeysOnly(inputSize);
-                SetStaticRootParameters(
-                    cmd,
-                    toSort,
-                    tempBuffer2,
-                    tempBuffer3,
-                    tempBuffer4);
-                Dispatch(
-                    cmd,
-                    toSort,
-                    toSortPayload,
-                    tempBuffer0,
-                    tempBuffer1);
-            }
+            AssertChecksPairs(sortSize, keyType, payloadType);
+            SetKeyTypeKeywords(cmd, keyType);
+            SetPayloadTypeKeywords(cmd, payloadType);
+            SetAscendingKeyWords(cmd, shouldAscend);
+            int threadBlocks = DivRoundUp(sortSize, k_partitionSize);
+            int globalHistThreadBlocks = DivRoundUp(sortSize, k_globalHistPartSize);
+            SetStaticRootParameters(
+                sortSize,
+                cmd,
+                toSort,
+                tempPassHistBuffer,
+                tempGlobalHistBuffer,
+                tempIndexBuffer);
+            Dispatch(
+                threadBlocks,
+                globalHistThreadBlocks,
+                cmd,
+                toSort,
+                toSortPayload,
+                tempKeyBuffer,
+                tempPayloadBuffer);
         }
     }
 }

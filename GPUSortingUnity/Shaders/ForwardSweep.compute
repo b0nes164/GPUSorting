@@ -1,23 +1,19 @@
 /******************************************************************************
  * GPUSorting
- * OneSweep Implementation
+ * ForwardSweep, an experimental version of OneSweep that has no forward thread
+ * progress requirements. 
  *
  * SPDX-License-Identifier: MIT
  * Copyright Thomas Smith 4/28/2024
  * https://github.com/b0nes164/GPUSorting
- * 
- * Based off of Research by:
- *          Andy Adinets, Nvidia Corporation
- *          Duane Merrill, Nvidia Corporation
- *          https://research.nvidia.com/publication/2022-06_onesweep-faster-least-significant-digit-radix-sort-gpus
  *
  ******************************************************************************/
 #include "SweepCommon.hlsl"
 
-#pragma kernel DigitBinningPass
+#pragma kernel ForwardSweep
 
 [numthreads(D_DIM, 1, 1)]
-void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
+void ForwardSweep(uint3 gtid : SV_GroupThreadID)
 {
     uint partitionIndex;
     KeyStruct keys;
@@ -74,7 +70,7 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         if (gtid.x < RADIX)
         {
             histReduction = WaveHistInclusiveScanCircularShiftWGE16(gtid.x);
-            DeviceBroadcastReductionsWGE16(gtid.x, partitionIndex, histReduction);
+            CASDeviceBroadcastReductionsWGE16(gtid.x, partitionIndex, histReduction);
             histReduction += WavePrefixSum(histReduction); //take advantage of barrier to begin scan
         }
         GroupMemoryBarrierWithGroupSync();
@@ -83,8 +79,11 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         GroupMemoryBarrierWithGroupSync();
             
         UpdateOffsetsWGE16(gtid.x, offsets, keys);
+        GroupMemoryBarrierWithGroupSync();
+            
         if (gtid.x < RADIX)
             exclusiveHistReduction = g_d[gtid.x]; //take advantage of barrier to grab value
+        InitializeLookbackFallback(gtid.x); //Set the locks for lookback fallback in shared memory
         GroupMemoryBarrierWithGroupSync();
     }
     
@@ -96,22 +95,28 @@ void DigitBinningPass(uint3 gtid : SV_GroupThreadID)
         {
             uint histReduction = WaveHistInclusiveScanCircularShiftWLT16(gtid.x);
             g_d[gtid.x] = histReduction + (histReduction << 16); //take advantage of barrier to begin scan
-            DeviceBroadcastReductionsWLT16(gtid.x, partitionIndex, histReduction);
+            CASDeviceBroadcastReductionsWLT16(gtid.x, partitionIndex, histReduction);
         }
             
         WaveHistReductionExclusiveScanWLT16(gtid.x);
         GroupMemoryBarrierWithGroupSync();
             
         UpdateOffsetsWLT16(gtid.x, SerialIterations(), offsets, keys);
-        if (gtid.x < RADIX) //take advantage of barrier to grab value
+        GroupMemoryBarrierWithGroupSync();
+            
+        if (gtid.x < RADIX)                 //take advantage of barrier to grab value
             exclusiveHistReduction = g_d[gtid.x >> 1] >> ((gtid.x & 1) ? 16 : 0) & 0xffff;
+        GroupMemoryBarrierWithGroupSync();
+        InitializeLookbackFallback(gtid.x); //Set the locks for lookback fallback in shared memory
         GroupMemoryBarrierWithGroupSync();
     }
     
-    ScatterKeysShared(offsets, keys);
-    Lookback(gtid.x, partitionIndex, exclusiveHistReduction);
+    LookbackWithFallback(gtid.x, partitionIndex, exclusiveHistReduction);
     GroupMemoryBarrierWithGroupSync();
-    
+        
+    ScatterKeysShared(offsets, keys);
+    GroupMemoryBarrierWithGroupSync();
+        
     if (partitionIndex < e_threadBlocks - 1)
         ScatterDevice(gtid.x, partitionIndex, offsets);
         
