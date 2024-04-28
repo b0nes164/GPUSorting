@@ -10,8 +10,6 @@
  ******************************************************************************/
 #include "SweepCommon.hlsl"
 
-#define MASK    8191
-
 [numthreads(D_DIM, 1, 1)]
 void ForwardSweep(uint3 gtid : SV_GroupThreadID)
 {
