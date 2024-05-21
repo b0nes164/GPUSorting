@@ -74,10 +74,10 @@ public:
     void Dispatch()
     {
         const uint32_t totalSegCount = 1;
-        const uint32_t segLength = 160;
+        const uint32_t segLength = 256;
 
         const uint32_t warpGroups = 1;
-        const uint32_t warpsPerWarpGroup = 2;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 256;
 
         uint32_t segHist[9];
@@ -87,7 +87,7 @@ public:
         DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
         cudaDeviceSynchronize();
 
-        SplitSortVariants::t64_kv256_cute32_bMerge<
+        SplitSortVariants::t32_kv256_cute128_wMerge<
             warpGroups * warpsPerWarpGroup,
             32><<<segHist[getSegHistIndex(kvProcessed)] / warpGroups, 32 * warpGroups * warpsPerWarpGroup>>>(
                 m_segments,
@@ -481,6 +481,26 @@ public:
             getDispatchThreads(warpGroups, warpsPerWarpGroup),
             getSegHistIndex(kvProcessed),
             &SplitSortVariants::t32_kv256_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
+    }
+
+    void BatchTime_w2_t32_kv256_cute128_wMerge(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 2;
+        const uint32_t warpsPerWarpGroup = 1;
+        const uint32_t kvProcessed = 256;
+
+        BatchTimeSortFixedSegmentLength(
+            "2 warp groups, 1 warps per warp group, 256 kv, cute128, warp merge",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv256_cute128_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t64_kv256_cute32_bMerge(

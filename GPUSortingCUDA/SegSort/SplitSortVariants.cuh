@@ -208,7 +208,7 @@ __device__ __forceinline__ void CuteSort64(
 }
 
 //Sort 128 keys at a time instead of 32, KEYS_PER_THREAD must be a multiple of 4
-template<uint32_t KEYS_PER_THREAD, uint32_t BITS_TO_SORT>
+template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
 __device__ __forceinline__ void CuteSort128(
     uint32_t* keys,
     uint16_t* indexes,
@@ -301,7 +301,7 @@ __device__ __forceinline__ void CuteSort128(
             {
                 indexes[k] = __popcll(gtMask[0][0]) + __popcll(gtMask[0][1]);
                 indexes[k] += __popc((uint32_t)eqMask[0][0] & getLaneMaskLt());
-                s_preMerge[indexes[k]] = keys[k];
+                s_preMerge[indexes[k] + (k >> 2 << 7)] = keys[k];
             }
             else
             {
@@ -312,7 +312,7 @@ __device__ __forceinline__ void CuteSort128(
             {
                 indexes[k + 1] = __popcll(gtMask[1][0]) + __popcll(gtMask[1][1]);
                 indexes[k + 1] += __popcll(eqMask[1][0] & upperMask);
-                s_preMerge[indexes[k + 1]] = keys[k + 1];
+                s_preMerge[indexes[k + 1] + (k >> 2 << 7)] = keys[k + 1];
             }
             else
             {
@@ -323,7 +323,7 @@ __device__ __forceinline__ void CuteSort128(
             {
                 indexes[k + 2] = __popcll(gtMask[2][0]) + __popcll(gtMask[2][1]);
                 indexes[k + 2] += __popcll(eqMask[2][0]) + __popc((uint32_t)eqMask[2][1] & getLaneMaskLt());
-                s_preMerge[indexes[k + 2]] = keys[k + 2];
+                s_preMerge[indexes[k + 2] + (k >> 2 << 7)] = keys[k + 2];
             }
             else
             {
@@ -334,7 +334,7 @@ __device__ __forceinline__ void CuteSort128(
             {
                 indexes[k + 3] = __popcll(gtMask[3][0]) + __popcll(gtMask[3][1]);
                 indexes[k + 3] += __popcll(eqMask[3][0]) + __popcll(eqMask[3][1] & upperMask);
-                s_preMerge[indexes[k + 3]] = keys[k + 3];
+                s_preMerge[indexes[k + 3] + (k >> 2 << 7)] = keys[k + 3];
             }
             else
             {
@@ -1427,6 +1427,27 @@ namespace SplitSortVariants
             totalSegCount,
             totalSegLength,
             CuteSort64<BITS_TO_SORT, 8>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT>
+        __global__ void t32_kv256_cute128_wMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            uint32_t* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength)
+    {
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 7, 8>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort128<BITS_TO_SORT, 8>);
     }
 
     template<
