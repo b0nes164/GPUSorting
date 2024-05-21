@@ -70,6 +70,7 @@ public:
         cudaFree(m_errCount);
     }
 
+    //for testing purposes only
     void Dispatch()
     {
         const uint32_t totalSegCount = 1;
@@ -88,7 +89,7 @@ public:
 
         SplitSortVariants::t64_kv256_cute32_bMerge<
             warpGroups * warpsPerWarpGroup,
-            32><<<segHist[__popcnt(kvProcessed - 1) - 5] / warpGroups, 32 * warpGroups * warpsPerWarpGroup>>>(
+            32><<<segHist[getSegHistIndex(kvProcessed)] / warpGroups, 32 * warpGroups * warpsPerWarpGroup>>>(
                 m_segments,
                 m_binOffsets,
                 m_sort,
@@ -107,23 +108,23 @@ public:
         }
     }
 
+#pragma region SortTests
     void BatchTime_w1_t32_kv32_cute32_bin(
         uint32_t batchCount,
         uint32_t totalSegCount,
         uint32_t segLength)
     {
         const uint32_t warpGroups = 1;
-        const uint32_t tpwg = 32;
-        const uint32_t kvProcessed = 32;
+        const uint32_t warpsPerWarpGroup = 1;
 
         BatchTimeBinSortFixedSegmentLength(
-            "1 warp groups, 32 threads per warp group, 32 kv, cute32, bin",
+            "1 warp groups, 1 warp per warp group, 32 kv, cute32, bin",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            &SplitSortVariants::t32_kv32_cute32_bin<kvProcessed, kvProcessed * warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            &SplitSortVariants::t32_kv32_cute32_bin<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w2_t32_kv32_cute32_bin(
@@ -132,17 +133,16 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 2;
-        const uint32_t tpwg = 32;
-        const uint32_t kvProcessed = 32;
+        const uint32_t warpsPerWarpGroup = 1;
 
         BatchTimeBinSortFixedSegmentLength(
-            "2 warp groups, 32 threads per warp group, 32 kv, cute32, bin",
+            "2 warp groups, 1 warp per warp group, 32 kv, cute32, bin",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            &SplitSortVariants::t32_kv32_cute32_bin<kvProcessed, kvProcessed * warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            &SplitSortVariants::t32_kv32_cute32_bin<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w4_t32_kv32_cute32_bin(
@@ -151,17 +151,16 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 4;
-        const uint32_t tpwg = 32;
-        const uint32_t kvProcessed = 32;
+        const uint32_t warpsPerWarpGroup = 1;
 
         BatchTimeBinSortFixedSegmentLength(
-            "4 warp groups, 32 threads per warp group, 32 kv, cute32, bin",
+            "4 warp groups, 1 warp per warp group, 32 kv, cute32, bin",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            &SplitSortVariants::t32_kv32_cute32_bin<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            &SplitSortVariants::t32_kv32_cute32_bin<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t32_kv64_cute32_wMerge(
@@ -170,18 +169,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 1;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "1 warp groups, 32 threads per warp group, 64 kv, cute32, warp merge",
+            "1 warp groups, 1 warp per warp group, 64 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute32_wMerge<kvProcessed, kvProcessed * warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w2_t32_kv64_cute32_wMerge(
@@ -190,18 +189,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 2;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "2 warp groups, 32 threads per warp group, 64 kv, cute32, warp merge",
+            "2 warp groups, 1 warp per warp group, 64 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute32_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w4_t32_kv64_cute32_wMerge(
@@ -210,18 +209,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 4;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "4 warp groups, 32 threads per warp group, 64 kv, cute32, warp merge",
+            "4 warp groups, 1 warp per warp group, 64 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute32_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t32_kv64_cute64_wMerge(
@@ -230,18 +229,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 1;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "1 warp groups, 32 threads per warp group, 64 kv, cute64, warp merge",
+            "1 warp groups, 1 warp per warp group, 64 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w2_t32_kv64_cute64_wMerge(
@@ -250,18 +249,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 2;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "2 warp groups, 32 threads per warp group, 64 kv, cute64, warp merge",
+            "2 warp groups, 1 warp per warp group, 64 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w4_t32_kv64_cute64_wMerge(
@@ -270,18 +269,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 4;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 64;
 
         BatchTimeSortFixedSegmentLength(
-            "4 warp groups, 32 threads per warp group, 64 kv, cute64, warp merge",
+            "4 warp groups, 1 warp per warp group, 64 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv64_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t32_kv128_cute32_wMerge(
@@ -290,18 +289,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 1;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "1 warp groups, 32 threads per warp group, 128 kv, cute32, warp merge",
+            "1 warp groups, 1 warp per warp group, 128 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute32_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w2_t32_kv128_cute32_wMerge(
@@ -310,18 +309,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 2;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "2 warp groups, 32 threads per warp group, 128 kv, cute32, warp merge",
+            "2 warp groups, 1 warp per warp group, 128 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute32_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w4_t32_kv128_cute32_wMerge(
@@ -330,18 +329,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 4;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "4 warp groups, 32 threads per warp group, 128 kv, cute32, warp merge",
+            "4 warp groups, 1 warp per warp group, 128 kv, cute32, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute32_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t32_kv128_cute64_wMerge(
@@ -350,18 +349,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 1;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "1 warp groups, 32 threads per warp group, 128 kv, cute64, warp merge",
+            "1 warp groups, 1 warp per warp group, 128 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w2_t32_kv128_cute64_wMerge(
@@ -370,18 +369,18 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 2;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "2 warp groups, 32 threads per warp group, 128 kv, cute64, warp merge",
+            "2 warp groups, 1 warp per warp group, 128 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w4_t32_kv128_cute64_wMerge(
@@ -390,21 +389,19 @@ public:
         uint32_t segLength)
     {
         const uint32_t warpGroups = 4;
-        const uint32_t tpwg = 32;
+        const uint32_t warpsPerWarpGroup = 1;
         const uint32_t kvProcessed = 128;
 
         BatchTimeSortFixedSegmentLength(
-            "4 warp groups, 32 threads per warp group, 128 kv, cute64, warp merge",
+            "4 warp groups, 1 warp per warp group, 128 kv, cute64, warp merge",
             batchCount,
             totalSegCount,
             segLength,
             warpGroups,
-            tpwg * warpGroups,
-            __popcnt(kvProcessed - 1) - 5,
-            &SplitSortVariants::t32_kv128_cute64_wMerge<kvProcessed, kvProcessed* warpGroups, warpGroups, 32>);
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv128_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
-
-    //FIX ALL ABOVE THIS POINT
 
     void BatchTime_w1_t64_kv128_cute32_bMerge(
         uint32_t batchCount,
@@ -421,8 +418,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv128_cute32_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -441,8 +438,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv128_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -461,8 +458,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t32_kv256_cute32_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -481,8 +478,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t32_kv256_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -501,8 +498,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv256_cute32_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -521,8 +518,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv256_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -541,8 +538,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv512_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -561,8 +558,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t128_kv512_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -581,8 +578,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t256_kv512_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -601,8 +598,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t128_kv1024_cute64_bMerge<warpGroups* warpsPerWarpGroup, 32>);
     }
 
@@ -621,8 +618,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t256_kv1024_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
@@ -642,8 +639,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv128_radix<32>);
     }
 
@@ -662,8 +659,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv256_radix<32>);
     }
 
@@ -682,8 +679,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t64_kv512_radix<32>);
     }
 
@@ -702,8 +699,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t128_kv512_radix<32>);
     }
 
@@ -722,8 +719,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t128_kv1024_radix<32>);
     }
 
@@ -742,8 +739,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t256_kv1024_radix<32>);
     }
 
@@ -762,8 +759,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t256_kv2048_radix<32>);
     }
 
@@ -782,8 +779,8 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t512_kv2048_radix<32>);
     }
 
@@ -802,11 +799,13 @@ public:
             totalSegCount,
             segLength,
             warpGroups,
-            32 * warpGroups * warpsPerWarpGroup,
-            __popcnt(kvProcessed - 1) - 5,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
             &SplitSortVariants::t512_kv4096_radix<32>);
     }
+#pragma endregion SortTests
 
+#pragma region BinningTests
     void BatchTimeBinningFixedSegLength(
         uint32_t batchCount,
         uint32_t segLength,
@@ -838,8 +837,8 @@ public:
                 printf(". ");
         }
 
-        //TODo
-        PrintResults(0, segCount, batchCount, totalTime, "segs");
+        //TODO add test
+        PrintResults(batchCount + 1, segCount, batchCount, totalTime, "segs");
     }
 
     void BatchTimeBinningRandomSegLength(
@@ -886,15 +885,25 @@ public:
                 printf(". ");
         }
 
-        //TODo
-        PrintResults(0, segCount, batchCount, totalTime, "segs");
+        //TODO add test
+        PrintResults(batchCount + 1, segCount, batchCount, totalTime, "segs");
     }
-
+#pragma endregion BinningTests
 
 private:
     static inline uint32_t divRoundUp(uint32_t x, uint32_t y)
     {
         return (x + y - 1) / y;
+    }
+
+    static inline uint32_t getSegHistIndex(uint32_t kvProcessed)
+    {
+        return __popcnt(kvProcessed - 1) - 5;
+    }
+
+    static inline uint32_t getDispatchThreads(uint32_t warpGroups, uint32_t warpsPerWarpGroup)
+    {
+        return 32 * warpGroups * warpsPerWarpGroup;  //Assumes 32 threads per warp
     }
 
     void DispatchBinning(uint32_t totalSegCount, uint32_t totalSegLength, uint32_t* segHist)
@@ -929,7 +938,6 @@ private:
             totalSegLength);
     }
 
-#pragma region BatchTimeUtilities
     bool BatchTimeSetup(
         const char* testName,
         cudaEvent_t& start,
@@ -985,7 +993,7 @@ private:
         uint32_t batchCount,
         uint32_t totalSegCount,
         uint32_t segLength,
-        uint32_t warps,
+        uint32_t warpGroups,
         uint32_t sortThreads,
         void (*Sort)(
             const uint32_t*,
@@ -1014,7 +1022,7 @@ private:
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
-            (*Sort)<<<segHist[0] / warps, sortThreads>>>(
+            (*Sort)<<<segHist[0] / warpGroups, sortThreads>>>(
                 m_segments,
                 m_binOffsets,
                 m_minBinSegCounts,
@@ -1046,7 +1054,7 @@ private:
         uint32_t batchCount,
         uint32_t totalSegCount,
         uint32_t segLength,
-        uint32_t warps,
+        uint32_t warpGroups,
         uint32_t sortThreads,
         uint32_t segHistOffset,
         void (*Sort)(
@@ -1068,12 +1076,14 @@ private:
         for (uint32_t i = 0; i <= batchCount; ++i)
         {
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
-            InitFixedSegLengthDescendingValue<<<1024,64>>>(m_sort, segLength, totalSegCount);
-            InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            //InitFixedSegLengthDescendingValue<<<1024,64>>>(m_sort, segLength, totalSegCount);
+            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
-            (*Sort)<<<segHist[segHistOffset] / warps, sortThreads>>>(
+            (*Sort)<<<segHist[segHistOffset] / warpGroups, sortThreads>>>(
                 m_segments,
                 m_binOffsets,
                 m_sort,
@@ -1097,9 +1107,7 @@ private:
 
         PrintResults(testsPassed, totalSegCount * segLength, batchCount, totalTime, "keys");
     };
-#pragma endregion BatchTimeUtilities
 
-#pragma region ValidationUtilities
     bool ValidateSegSortFixedLength(uint32_t segLength, uint32_t segCount)
     {
         uint32_t errCount[1];
@@ -1112,5 +1120,4 @@ private:
         cudaDeviceSynchronize();
         return !errCount[0];
     }
-#pragma endregion ValidationUtilities
 };
