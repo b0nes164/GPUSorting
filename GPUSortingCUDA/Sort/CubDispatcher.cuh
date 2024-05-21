@@ -18,7 +18,7 @@
 #include "cub/agent/agent_radix_sort_onesweep.cuh"
 #include "cub/device/device_radix_sort.cuh"
 #include "cub/util_type.cuh"
-#include "UtilityKernels.cuh"
+#include "../UtilityKernels.cuh"
 
 
 template <typename KeyT, typename ValueT, typename OffsetT>

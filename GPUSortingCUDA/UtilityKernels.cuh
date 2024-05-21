@@ -104,9 +104,104 @@ __global__ void InitRandom(
             t &= HYBRID_TAUS;
         }
         sort[i] = t;
-        sort[i] = t;
         sortPayload[i] = t;
     }
+}
+
+//Kernels for Segmented Sort testing:
+//Create descending sequences of exact length of a segment
+__global__ void InitFixedSegLengthDescendingValue(
+    uint32_t* sort,
+    uint32_t segLength,
+    uint32_t totalSegCount)
+{
+    const uint32_t sCount = totalSegCount;
+    const uint32_t sLength = segLength;
+
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t devOffset = k * sLength;
+        for (uint32_t i = threadIdx.x; i < sLength; i += blockDim.x)
+            sort[i + devOffset] = sLength - i;
+    }
+}
+
+__global__ void InitFixedSegLengthRandomValue(
+    uint32_t* sort,
+    uint32_t segLength,
+    uint32_t totalSegCount,
+    uint32_t seed)
+{
+    uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    const uint32_t sCount = totalSegCount;
+    const uint32_t sLength = segLength;
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t devOffset = k * sLength;
+        for (uint32_t i = threadIdx.x; i < sLength; i += blockDim.x)
+        {
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            sort[i + devOffset] = HYBRID_TAUS;
+        }
+    }
+}
+
+//Because seg lengths are fixed, we can skip prefix sum
+//by multiplying the index by the seg length
+__global__ void InitSegLengthsFixed(
+    uint32_t* segments,
+    uint32_t maxSegments,
+    uint32_t segmentLength)
+{
+    const uint32_t segLength = segmentLength;
+    for (uint32_t i = threadIdx.x + blockIdx.x * blockDim.x; i < maxSegments; i += blockDim.x * gridDim.x)
+        segments[i] = i * segLength;
+}
+
+__global__ void InitSegLengthsRandom(
+    uint32_t* segments,
+    uint32_t* totalLength,
+    uint32_t andCount,
+    uint32_t seed,
+    uint32_t totalSegCount,
+    uint32_t maxLength)
+{
+    uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const uint32_t maxVal = maxLength * 1.75 / totalSegCount; // * 1,75 is a hack
+    uint32_t total = 0;
+
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    for (uint32_t i = idx; i < totalSegCount; i += blockDim.x * gridDim.x)
+    {
+        uint32_t t = 0xffffffff;
+        for (uint32_t k = 0; k <= andCount; ++k)
+        {
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            t &= HYBRID_TAUS;
+            t %= maxVal;
+        }
+        segments[i] = t;
+        total += t;
+    }
+
+    const uint32_t reduce = WarpReduceSum(total);
+    if (!getLaneId())
+        atomicAdd((uint32_t*)&totalLength[0], reduce);
 }
 
 #define VAL_PART_SIZE 4096
@@ -184,6 +279,26 @@ __global__ void Validate(uint32_t* sort, uint32_t* sortPayload, uint32_t* errCou
         {
             if (sortPayload[i] > sortPayload[i + 1])
                 atomicAdd(&errCount[0], 1);
+        }
+    }
+}
+
+__global__ void ValidateFixLengthSegments(
+    uint32_t* sort,
+    uint32_t* errCount,
+    uint32_t segLength,
+    uint32_t totalSegCount)
+{
+    const uint32_t sCount = totalSegCount;
+    const uint32_t sLength = segLength;
+
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t devOffset = k * sLength;
+        for (uint32_t i = threadIdx.x + 1; i < sLength; i += blockDim.x)
+        {
+            if(sort[i + devOffset - 1] > sort[i + devOffset])
+                atomicAdd((uint32_t*)&errCount[0], 1);
         }
     }
 }

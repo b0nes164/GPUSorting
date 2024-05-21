@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "Utils.cuh"
+#include "../Utils.cuh"
 
 namespace OneSweep
 {

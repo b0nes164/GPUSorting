@@ -33,6 +33,13 @@ __device__ __forceinline__ unsigned getLaneMaskLt()
     return mask;
 }
 
+__device__ __forceinline__ unsigned getLaneMaskGt()
+{
+    unsigned mask;
+    asm("mov.u32 %0, %%lanemask_gt;" : "=r"(mask));
+    return mask;
+}
+
 //Warp scans
 __device__ __forceinline__ uint32_t InclusiveWarpScan(uint32_t val)
 {
@@ -112,6 +119,15 @@ __device__ __forceinline__ uint32_t ActiveExclusiveWarpScan(uint32_t val)
 }
 
 __device__ __forceinline__ double WarpReduceSum(double val)
+{
+    #pragma unroll
+    for (int mask = 16; mask; mask >>= 1) // 16 = LANE_COUNT >> 1
+        val += __shfl_xor_sync(0xffffffff, val, mask, LANE_COUNT);
+
+    return val;
+}
+
+__device__ __forceinline__ uint32_t WarpReduceSum(uint32_t val)
 {
     #pragma unroll
     for (int mask = 16; mask; mask >>= 1) // 16 = LANE_COUNT >> 1

@@ -12,7 +12,7 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include "EmulatedDeadlocking.cuh"
-#include "UtilityKernels.cuh"
+#include "../UtilityKernels.cuh"
 
 class EmulatedDeadlockingDispatcher
 {
@@ -125,7 +125,7 @@ public:
         }
 
         const float entLookup[5] = { 1.0f, .811f, .544f, .337f, .201f };
-        printf("Beginning GPUSorting OneSweep keys batch timing test at:\n");
+        printf("Beginning GPUSorting ForwardSweep keys batch timing test at:\n");
         printf("Size: %u\n", size);
         printf("Entropy: %f bits\n", entLookup[entropyPreset]);
         printf("Test size: %u\n", batchCount);
