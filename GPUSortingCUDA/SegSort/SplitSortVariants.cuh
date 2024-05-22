@@ -140,8 +140,10 @@ __device__ __forceinline__ void CuteSort64(
     {
         if (k * LANE_COUNT + warpOffset < totalLocalLength)
         {
-            uint64_t eqMask[2] = { ~0ULL, ~0ULL };
-            uint64_t gtMask[2] = { 0, 0 };
+            uint32_t eqMask0 = ~0U;
+            uint64_t eqMask1 = ~0ULL;
+            uint64_t gtMask0 = 0;
+            uint64_t gtMask1 = 0;
             uint32_t ballot[2];
             bool setBit[2];
 
@@ -154,33 +156,34 @@ __device__ __forceinline__ void CuteSort64(
                 setBit[1] = ExtractDigit(keys[k + 1], bit);
                 ballot[1] = __ballot_sync(0xffffffff, setBit[1]);
 
+                const uint64_t t = ~reinterpret_cast<uint64_t*>(ballot)[0];
                 if (setBit[0])
                 {
-                    eqMask[0] &= reinterpret_cast<uint64_t*>(ballot)[0];
-                    gtMask[0] |= ~reinterpret_cast<uint64_t*>(ballot)[0];
+                    eqMask0 &= ballot[0];
+                    gtMask0 |= t;
                 }
                 else
                 {
-                    eqMask[0] &= ~reinterpret_cast<uint64_t*>(ballot)[0];
-                    gtMask[0] &= ~reinterpret_cast<uint64_t*>(ballot)[0];
+                    eqMask0 &= (uint32_t)t;
+                    gtMask0 &= t;
                 }
 
                 if (setBit[1])
                 {
-                    eqMask[1] &= reinterpret_cast<uint64_t*>(ballot)[0];
-                    gtMask[1] |= ~reinterpret_cast<uint64_t*>(ballot)[0];
+                    eqMask1 &= reinterpret_cast<uint64_t*>(ballot)[0];
+                    gtMask1 |= t;
                 }
                 else
                 {
-                    eqMask[1] &= ~reinterpret_cast<uint64_t*>(ballot)[0];
-                    gtMask[1] &= ~reinterpret_cast<uint64_t*>(ballot)[0];
+                    eqMask1 &= t;
+                    gtMask1 &= t;
                 }
             }
 
             if (getLaneId() + k * LANE_COUNT + warpOffset < totalLocalLength)
             {
-                indexes[k] = __popc((uint32_t)eqMask[0] & getLaneMaskLt());
-                indexes[k] += __popcll(gtMask[0]);
+                indexes[k] = __popc(eqMask0 & getLaneMaskLt());
+                indexes[k] += __popcll(gtMask0);
                 s_preMerge[indexes[k] + (k >> 1 << 6)] = keys[k];
             }
             else
@@ -190,8 +193,8 @@ __device__ __forceinline__ void CuteSort64(
 
             if (getLaneId() + (k + 1) * LANE_COUNT + warpOffset < totalLocalLength)
             {
-                indexes[k + 1] = __popcll(eqMask[1] & ((uint64_t)getLaneMaskLt() << 32 | 0xffffffff));
-                indexes[k + 1] += __popcll(gtMask[1]);
+                indexes[k + 1] = __popcll(eqMask1 & ((uint64_t)getLaneMaskLt() << 32 | 0xffffffff));
+                indexes[k + 1] += __popcll(gtMask1);
                 s_preMerge[indexes[k + 1] + (k >> 1 << 6)] = keys[k + 1];
             }
             else
@@ -508,66 +511,6 @@ __device__ __forceinline__ uint2 GetDiags(
         }
     }
     return uint2{ (uint32_t)aI, (uint32_t)bI };
-}
-
-//For merge of 32 x 32 only
-//Gets diagonals but using registers and shuffling as opposed to shared memory
-__device__ __forceinline__ uint2 RegGetDiags(
-    uint32_t* a,
-    uint32_t* b,
-    uint32_t id)
-{
-    const uint32_t index = id << 1;
-    uint32_t aTop;
-    uint32_t bTop;
-    uint32_t aBot;
-    bool incomplete = true;
-
-    if (index > LANE_COUNT)
-    {
-        aTop = LANE_COUNT;
-        bTop = index - LANE_COUNT;
-    }
-    else
-    {
-        aTop = index;
-        bTop = 0;
-    }
-    aBot = bTop;
-
-    uint2 diags;
-    #pragma unroll
-    for (uint32_t i = 0; i < LANE_LOG + 1; ++i)
-    {
-        const uint32_t offset = abs((int32_t)aTop - (int32_t)aBot) >> 1;
-        diags = { aTop - offset, bTop + offset };
-
-        const uint32_t xVal = __shfl_sync(0xffffffff, a[0], diags.x == LANE_COUNT ? 0 : diags.x);
-        const uint32_t yVal = __shfl_sync(0xffffffff, b[0], diags.y == 0 ? 0 : diags.y - 1);
-        const uint32_t xVal2 = __shfl_sync(0xffffffff, a[0], diags.x == 0 ? 0 : diags.x - 1);
-        const uint32_t yVal2 = __shfl_sync(0xffffffff, b[0], diags.y == LANE_COUNT ? 0 : diags.y);
-
-        if (incomplete)
-        {
-            if (diags.y == 0 || diags.x == LANE_COUNT || xVal > yVal)
-            {
-                if (diags.x == 0 || diags.y == LANE_COUNT || xVal2 <= yVal2)
-                {
-                    incomplete = false;
-                }
-                else
-                {
-                    aTop = diags.x - 1;
-                    bTop = diags.y + 1;
-                }
-            }
-            else
-            {
-                aBot = diags.x + 1;
-            }
-        }
-    }
-    return diags;
 }
 
 __device__ __forceinline__ void MergeSwapIndex(
@@ -1013,6 +956,281 @@ __device__ __forceinline__ void SplitSortBlock(
     }
 }
 
+__device__ __forceinline__ uint32_t RegShuffle32(
+    const uint32_t* keys,
+    const uint32_t index,
+    const bool isValid)
+{
+    return __shfl_sync(0xffffffff, keys[0], isValid ? index : 0);
+}
+
+template<uint32_t MERGE_SIZE_LOG>
+__device__ __forceinline__ uint2 GetDiagsReg(
+    uint32_t* a,
+    uint32_t* b,
+    const int32_t lengthA,
+    const int32_t lengthB,
+    const int32_t id,
+    const int32_t threadCount,
+    uint32_t (*RegShuffle)(const uint32_t*, const uint32_t, const bool))
+{
+    const int32_t index = id * (lengthA + lengthB) / threadCount;
+    int32_t aTop;
+    int32_t bTop;
+    int32_t aBot;
+
+    if (index > lengthA)
+    {
+        aTop = lengthA;
+        bTop = index - lengthA;
+    }
+    else
+    {
+        aTop = index;
+        bTop = 0;
+    }
+    aBot = bTop;
+
+    //Test reg counts, pack if necessary
+    bool incomplete = true;
+    bool aOuter0;
+    bool aOuter1;
+    bool aInner;
+    bool bOuter0;
+    bool bOuter1;
+    bool bInner; 
+
+    int32_t aI;
+    int32_t bI;
+
+    #pragma unroll
+    for (uint32_t i = 0; i < MERGE_SIZE_LOG; ++i)
+    {
+        const int32_t offset = abs(aTop - aBot) / 2;
+        aI = aTop - offset;
+        bI = bTop + offset;
+
+        aOuter0 = aI >= 0;
+        aOuter1 = aI == lengthA;
+        aInner = aI == 0;
+        bOuter0 = bI <= lengthB;
+        bOuter1 = bI == 0;
+        bInner = bI == lengthB;
+
+        const uint32_t a0 = (*RegShuffle)(a, aI, aOuter0 && !aOuter1);
+        const uint32_t b0 = (*RegShuffle)(b, bI - 1, bOuter0 && !bOuter1);
+        const uint32_t a1 = (*RegShuffle)(a, aI - 1, !aInner);
+        const uint32_t b1 = (*RegShuffle)(b, bI, !bInner);
+
+        if (incomplete)
+        {
+            if (aOuter0 && bOuter0 && (aOuter1 || bOuter1 || a0 > b0))
+            {
+                if (aInner || bInner || a1 <= b1)
+                {
+                    incomplete = false;
+                }
+                else
+                {
+                    aTop = aI - 1;
+                    bTop = bI + 1;
+                }
+            }
+            else
+            {
+                aBot = aI + 1;
+            }
+        }
+    }
+
+    return uint2{ (uint32_t)aI, (uint32_t)bI };
+}
+
+template<uint32_t MERGE_LENGTH>
+__device__ __forceinline__ void MergeReg(
+    uint32_t* a,
+    uint32_t* b,
+    uint32_t* c,
+    uint16_t* indexes,
+    uint32_t startA,
+    const uint32_t endA,
+    uint32_t startB,
+    const uint32_t endB,
+    uint32_t(*RegShuffle)(const uint32_t*, const uint32_t, const bool))
+{
+    uint16_t tempIndexes[MERGE_LENGTH];
+    #pragma unroll
+    for (uint32_t i = 0; i < MERGE_LENGTH; ++i)
+    {
+        const uint32_t aVal = (*RegShuffle)(a, startA, startA < endA);
+        const uint32_t bVal = (*RegShuffle)(b, startB, startB < endB);
+        const uint32_t aInd = __shfl_sync(0xffffffff, indexes[0], startA < endA ? startA : 0);
+        const uint32_t bInd = __shfl_sync(0xffffffff, indexes[0], startB < endB ? startB : 0);
+
+        if (startA >= endA)
+        {
+            if (startB < endB)
+            {
+                c[i] = bVal;
+                tempIndexes[i] = bInd;
+                ++startB;
+            }
+        }
+        else
+        {
+            if (startB >= endB)
+            {
+                if (startA < endA)
+                {
+                    c[i] = aVal;
+                    tempIndexes[i] = aInd;
+                    ++startA;
+                }
+            }
+            else
+            {
+                if (aVal <= bVal)
+                {
+                    c[i] = aVal;
+                    tempIndexes[i] = aInd;
+                    ++startA;
+                }
+                else
+                {
+                    c[i] = bVal;
+                    tempIndexes[i] = bInd;
+                    ++startB;
+                }
+            }
+        }
+    }
+
+    #pragma unroll
+    for (uint32_t i = 0; i < MERGE_LENGTH; ++i)
+        indexes[i] = tempIndexes[i];
+}
+
+template<uint32_t MERGE_LENGTH, uint32_t MERGE_LENGTH_LOG>
+__device__ __forceinline__ void GetDiagsAndMergeWarpReg(
+    uint32_t* preMerge,
+    uint32_t* postMerge,
+    uint16_t* indexes,
+    const uint32_t startA,
+    const uint32_t totalLocalLength,
+    const uint32_t warpOffset,
+    uint32_t(*RegShuffle)(const uint32_t*, const uint32_t, const bool))
+{
+    int32_t lengthA = totalLocalLength - (startA + warpOffset);
+    if (lengthA < 0)
+        lengthA = 0;
+    if (lengthA > MERGE_LENGTH)
+        lengthA = MERGE_LENGTH;
+
+    int32_t lengthB = totalLocalLength - (startA + MERGE_LENGTH + warpOffset);
+    if (lengthB < 0)
+        lengthB = 0;
+    if (lengthB > MERGE_LENGTH)
+        lengthB = MERGE_LENGTH;
+
+    const uint2 diags = GetDiagsReg<MERGE_LENGTH_LOG>(
+        &preMerge[startA >> LANE_LOG],
+        &preMerge[startA + MERGE_LENGTH >> LANE_LOG],
+        lengthA,
+        lengthB,
+        (int32_t)getLaneId(),
+        (int32_t)LANE_COUNT,
+        (*RegShuffle));
+
+    uint2 upperDiags{   __shfl_down_sync(0xffffffff, diags.x, 1, LANE_COUNT),
+                        __shfl_down_sync(0xffffffff, diags.y, 1, LANE_COUNT)     };
+    if (getLaneId() == LANE_MASK)
+        upperDiags = { (uint32_t)lengthA, (uint32_t)lengthB };
+    //__syncwarp(0xffffffff); //Unecessary?
+
+    /*if (!blockIdx.x)
+        printf("%u %u | %u %u | %u\n", diags.x, upperDiags.x, diags.y, upperDiags.y, lengthB);*/
+
+    MergeReg<MERGE_LENGTH>(
+        &preMerge[startA >> LANE_LOG],
+        &preMerge[startA + MERGE_LENGTH >> LANE_LOG],
+        &postMerge[startA >> LANE_LOG],
+        &indexes[startA >> LANE_LOG],
+        diags.x,
+        upperDiags.x,
+        diags.y,
+        upperDiags.y,
+        (*RegShuffle));
+    __syncwarp(0xffffffff);
+}
+
+//incomplete testing only
+template<
+    uint32_t KEYS_PER_THREAD,
+    uint32_t WARP_KEYS,
+    uint32_t BLOCK_KEYS,
+    uint32_t WARPS,
+    uint32_t WARP_LOG_START,
+    uint32_t WARP_LOG_END>
+__device__ __forceinline__ void SplitSortWarpReg(
+    const uint32_t* segments,
+    const uint32_t* binOffsets,
+    uint32_t* sort,
+    uint32_t* payloads,
+    const uint32_t totalSegCount,
+    const uint32_t totalSegLength,
+    void (*CuteSortVariant)(uint32_t*, uint16_t*, uint32_t*, const uint32_t, const uint32_t))
+{
+    __shared__ uint32_t s_memPreMerge[BLOCK_KEYS];
+    //__shared__ uint32_t s_memPostMerge[BLOCK_KEYS];
+
+    uint32_t* s_warpMemPreMerge = &s_memPreMerge[WARP_INDEX * WARP_KEYS];
+    //uint32_t* s_warpMemPostMerge = &s_memPostMerge[WARP_INDEX * WARP_KEYS];
+
+    const uint32_t binOffset = binOffsets[blockIdx.x * WARPS + WARP_INDEX];
+    const uint32_t segmentEnd = binOffset + 1 == totalSegCount ? totalSegLength : segments[binOffset + 1];
+    const uint32_t segmentStart = segments[binOffset];
+    const uint32_t totalLocalLength = segmentEnd - segmentStart;
+
+    uint32_t keys[KEYS_PER_THREAD];
+    #pragma unroll
+    for (uint32_t i = getLaneId() + segmentStart, k = 0;
+        k < KEYS_PER_THREAD;
+        i += LANE_COUNT, ++k)
+    {
+        keys[k] = i < segmentEnd ? sort[i] : 0xffffffff;
+    }
+
+    uint16_t indexes[KEYS_PER_THREAD];
+    (*CuteSortVariant)(keys, indexes, s_warpMemPreMerge, totalLocalLength, 0);
+    __syncwarp(0xffffffff);
+    
+    //load keys out of shared memory after scattering
+    #pragma unroll
+    for (uint32_t i = getLaneId(), k = 0; k < KEYS_PER_THREAD; i += LANE_COUNT, ++k)
+    {
+        if (i < totalLocalLength)
+            keys[k] = s_warpMemPreMerge[i];
+    }
+
+    uint32_t keysOut[KEYS_PER_THREAD];
+    GetDiagsAndMergeWarpReg<32, 5>(
+        keys,
+        keysOut,
+        indexes,
+        0,
+        totalLocalLength,
+        0,
+        RegShuffle32);
+    __syncwarp(0xffffffff);
+
+    #pragma unroll
+    for (uint32_t i = getLaneId() << 1, k = 0; k < KEYS_PER_THREAD; ++i, ++k)
+    {
+        if (i < totalLocalLength)
+            sort[i + segmentStart] = keysOut[k];
+    }
+}
+
 #define RADIX_LOG   8
 #define RADIX       256
 #define RADIX_MASK  255
@@ -1282,6 +1500,28 @@ namespace SplitSortVariants
             CuteSort32<BITS_TO_SORT, 2>);
     }
 
+    //incomplete, test only
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT>
+        __global__ void t32_kv64_cute32_wRegMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            uint32_t* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength)
+    {
+        SplitSortWarpReg<2, 64, 64 * WARPS, WARPS, 5, 6>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort32<BITS_TO_SORT, 2>);
+    }
+
     template<
         uint32_t WARPS,
         uint32_t BITS_TO_SORT>
@@ -1419,7 +1659,7 @@ namespace SplitSortVariants
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 8>(
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 6>(
             segments,
             binOffsets,
             sort,
@@ -1490,6 +1730,69 @@ namespace SplitSortVariants
             totalSegCount,
             totalSegLength,
             CuteSort64<BITS_TO_SORT, 4>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT>
+        __global__ void t128_kv256_cute32_bMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            uint32_t* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength)
+    {
+        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 5, 6, 8>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort32<BITS_TO_SORT, 2>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT>
+        __global__ void t128_kv256_cute64_bMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            uint32_t* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength)
+    {
+        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 6, 6, 8>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort64<BITS_TO_SORT, 2>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT>
+        __global__ void t256_kv256_cute32_bMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            uint32_t* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength)
+    {
+        SplitSortBlock<1, 32, 256, WARPS / 8, 8, 5, 5, 8>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort32<BITS_TO_SORT, 1>);
     }
 
     template<
@@ -1664,6 +1967,24 @@ namespace SplitSortVariants
         const uint32_t totalSegLength)
     {
         SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength);
+    }
+
+    template<uint32_t BITS_TO_SORT>
+    __global__ void t256_kv512_radix(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        uint32_t* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        SplitSortRadix<8, 2, 64, 512, ROUND_UP_BITS_TO_SORT>(
             segments,
             binOffsets,
             sort,

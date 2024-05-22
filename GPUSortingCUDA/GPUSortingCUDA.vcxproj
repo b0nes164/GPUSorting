@@ -27,7 +27,6 @@
     <ClInclude Include="Utils.cuh" />
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="SegSort\SplitSort.cu" />
     <CudaCompile Include="SegSort\SplitSortBinning.cu" />
     <CudaCompile Include="Sort\DeviceRadixSort.cu" />
     <CudaCompile Include="Sort\EmulatedDeadlocking.cu" />
@@ -116,6 +115,7 @@
       <GenerateRelocatableDeviceCode>false</GenerateRelocatableDeviceCode>
       <DebugInformationFormat>None</DebugInformationFormat>
       <Warning>W0</Warning>
+      <MaxRegCount>0</MaxRegCount>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -16,6 +16,7 @@
 #include "SplitSortVariants.cuh"
 #include "SplitSortBinning.cuh"
 #include "../UtilityKernels.cuh"
+#include <cub/device/device_segmented_radix_sort.cuh>
 
 class SplitSortVariantTester
 {
@@ -74,11 +75,11 @@ public:
     void Dispatch()
     {
         const uint32_t totalSegCount = 1;
-        const uint32_t segLength = 256;
+        const uint32_t segLength = 64;
 
         const uint32_t warpGroups = 1;
         const uint32_t warpsPerWarpGroup = 1;
-        const uint32_t kvProcessed = 256;
+        const uint32_t kvProcessed = 64;
 
         uint32_t segHist[9];
         InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
@@ -87,7 +88,7 @@ public:
         DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
         cudaDeviceSynchronize();
 
-        SplitSortVariants::t32_kv256_cute128_wMerge<
+        SplitSortVariants::t32_kv64_cute32_wRegMerge<
             warpGroups * warpsPerWarpGroup,
             32><<<segHist[getSegHistIndex(kvProcessed)] / warpGroups, 32 * warpGroups * warpsPerWarpGroup>>>(
                 m_segments,
@@ -281,6 +282,26 @@ public:
             getDispatchThreads(warpGroups, warpsPerWarpGroup),
             getSegHistIndex(kvProcessed),
             &SplitSortVariants::t32_kv64_cute64_wMerge<warpGroups * warpsPerWarpGroup, 32>);
+    }
+
+    void BatchTime_w1_t32_kv64_cute32_wRegMerge(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 1;
+        const uint32_t kvProcessed = 64;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 1 warp per warp group, 64 kv, cute32, warp register merge",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t32_kv64_cute32_wRegMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
     void BatchTime_w1_t32_kv128_cute32_wMerge(
@@ -543,6 +564,66 @@ public:
             &SplitSortVariants::t64_kv256_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
     }
 
+    void BatchTime_w1_t128_kv256_cute32_bMerge(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 4;
+        const uint32_t kvProcessed = 256;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 4 warps per warp group, 256 kv, cute32, block merge",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t128_kv256_cute32_bMerge<warpGroups * warpsPerWarpGroup, 32>);
+    }
+
+    void BatchTime_w1_t128_kv256_cute64_bMerge(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 4;
+        const uint32_t kvProcessed = 256;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 4 warps per warp group, 256 kv, cute64, block merge",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t128_kv256_cute64_bMerge<warpGroups * warpsPerWarpGroup, 32>);
+    }
+
+    void BatchTime_w1_t256_kv256_cute32_bMerge(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 8;
+        const uint32_t kvProcessed = 256;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 8 warps per warp group, 256 kv, cute32, block merge",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t256_kv256_cute32_bMerge<warpGroups * warpsPerWarpGroup, 32>);
+    }
+
     void BatchTime_w1_t64_kv512_cute64_bMerge(
         uint32_t batchCount,
         uint32_t totalSegCount,
@@ -724,6 +805,26 @@ public:
             &SplitSortVariants::t128_kv512_radix<32>);
     }
 
+    void BatchTime_w1_t256_kv512_radix(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 8;
+        const uint32_t kvProcessed = 512;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 8 warps per warp group, 512 kv, radix",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t256_kv512_radix<32>);
+    }
+
     void BatchTime_w1_t128_kv1024_radix(
         uint32_t batchCount,
         uint32_t totalSegCount,
@@ -822,6 +923,71 @@ public:
             getDispatchThreads(warpGroups, warpsPerWarpGroup),
             getSegHistIndex(kvProcessed),
             &SplitSortVariants::t512_kv4096_radix<32>);
+    }
+
+    void BatchTimeCubSegRadixSort(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        cudaEvent_t start;
+        cudaEvent_t stop;
+        if (!BatchTimeSetup("CubDeviceSegRadixSort", start, stop, totalSegCount, segLength))
+            return;
+
+        void* d_temp_storage = NULL;
+        size_t temp_storage_bytes = 0;
+        cub::DeviceSegmentedRadixSort::SortPairs(
+            d_temp_storage,
+            temp_storage_bytes,
+            m_sort,
+            m_sort,
+            m_payloads,
+            m_payloads,
+            segLength * (totalSegCount - 1),
+            totalSegCount - 1,
+            m_segments,
+            m_segments + 1);
+        cudaMalloc(&d_temp_storage, temp_storage_bytes);
+
+        float totalTime = 0.0f;
+        uint32_t testsPassed = 0;
+        for (uint32_t i = 0; i <= batchCount; ++i)
+        {
+            InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
+            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
+            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            cudaDeviceSynchronize();
+            cudaEventRecord(start);
+            cub::DeviceSegmentedRadixSort::SortPairs(
+                d_temp_storage,
+                temp_storage_bytes,
+                m_sort,
+                m_sort,
+                m_payloads,
+                m_payloads,
+                segLength * (totalSegCount - 1),
+                totalSegCount - 1,
+                m_segments,
+                m_segments + 1);
+            cudaEventRecord(stop);
+            cudaEventSynchronize(stop);
+            
+            if(ValidateSegSortFixedLength(segLength, totalSegCount - 1))
+                testsPassed++;
+
+            float millis;
+            cudaEventElapsedTime(&millis, start, stop);
+            if (i)
+                totalTime += millis;
+
+            if ((i & 15) == 0)
+                printf(". ");
+        }
+
+        PrintResults(testsPassed, (totalSegCount - 1) * segLength, batchCount, totalTime, "pairs");
     }
 #pragma endregion SortTests
 
@@ -1065,7 +1231,7 @@ private:
                 printf(". ");
         }
 
-        PrintResults(testsPassed, totalSegCount * segLength, batchCount, totalTime, "keys");
+        PrintResults(testsPassed, totalSegCount * segLength, batchCount, totalTime, "pairs");
     }
 
     //Time the sorting of seg lengths > 32
@@ -1097,7 +1263,7 @@ private:
         {
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
             //InitFixedSegLengthDescendingValue<<<1024,64>>>(m_sort, segLength, totalSegCount);
-            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            //InitFixedSegLengthDescendingValue<<<1024,64>>>(m_payloads, segLength, totalSegCount);
             InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
             InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
@@ -1125,7 +1291,7 @@ private:
                 printf(". ");
         }
 
-        PrintResults(testsPassed, totalSegCount * segLength, batchCount, totalTime, "keys");
+        PrintResults(testsPassed, totalSegCount * segLength, batchCount, totalTime, "pairs");
     };
 
     bool ValidateSegSortFixedLength(uint32_t segLength, uint32_t segCount)

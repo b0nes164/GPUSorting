@@ -53,6 +53,10 @@ int main()
     d->BatchTimingKeysOnly(1 << 28, 100, 10, ENTROPY_PRESET_1);
     d->~EmulatedDeadlockingDispatcher();
 
+    //-----------------SEGMETED SORT-----------------
+    SplitSortDispatcher* sp = new SplitSortDispatcher(1 << 27, 1 << 22);
+    sp->BatchTimeFixedSegmentLength(100, 1 << 22, 32);
+    sp->~SplitSortDispatcher();
 
     //-----------------SEGMENT VARIANTS-----------------
     /*SplitSortVariantTester* spv = new SplitSortVariantTester(1 << 27, 1 << 22);
@@ -64,8 +68,8 @@ int main()
    
     //64
     spv->BatchTime_w1_t32_kv64_cute32_wMerge(100, 1 << 21, 64);
-    spv->BatchTime_w2_t32_kv64_cute32_wMerge(100, 1 << 21, 64);         //Best 64
-    spv->BatchTime_w4_t32_kv64_cute32_wMerge(100, 1 << 21, 64);
+    spv->BatchTime_w2_t32_kv64_cute32_wMerge(100, 1 << 21, 64);
+    spv->BatchTime_w4_t32_kv64_cute32_wMerge(100, 1 << 21, 64);         //Best 64
 
     spv->BatchTime_w1_t32_kv64_cute64_wMerge(100, 1 << 21, 64);
     spv->BatchTime_w2_t32_kv64_cute64_wMerge(100, 1 << 21, 64);
@@ -73,27 +77,31 @@ int main()
     
     //128
     spv->BatchTime_w1_t32_kv128_cute32_wMerge(100, 1 << 20, 128);
-    spv->BatchTime_w2_t32_kv128_cute32_wMerge(100, 1 << 20, 128);       //Slower top end, better partial
+    spv->BatchTime_w2_t32_kv128_cute32_wMerge(100, 1 << 20, 128);
     spv->BatchTime_w4_t32_kv128_cute32_wMerge(100, 1 << 20, 128);
 
     spv->BatchTime_w1_t32_kv128_cute64_wMerge(100, 1 << 20, 128);
-    spv->BatchTime_w2_t32_kv128_cute64_wMerge(100, 1 << 20, 128);       //Best top end
+    spv->BatchTime_w2_t32_kv128_cute64_wMerge(100, 1 << 20, 128);
     spv->BatchTime_w4_t32_kv128_cute64_wMerge(100, 1 << 20, 128);
 
     spv->BatchTime_w1_t64_kv128_cute32_bMerge(100, 1 << 20, 128);
-    spv->BatchTime_w1_t64_kv128_cute64_bMerge(100, 1 << 20, 128);
+    spv->BatchTime_w1_t64_kv128_cute64_bMerge(100, 1 << 20, 128);       //Best 128
 
     //256
     spv->BatchTime_w2_t32_kv256_cute32_wMerge(100, 1 << 19, 256);
     spv->BatchTime_w2_t32_kv256_cute64_wMerge(100, 1 << 19, 256);
+    spv->BatchTime_w2_t32_kv256_cute128_wMerge(100, 1 << 19, 256);
     spv->BatchTime_w1_t64_kv256_cute32_bMerge(100, 1 << 19, 256);
-    spv->BatchTime_w1_t64_kv256_cute64_bMerge(100, 1 << 19, 256);       //Best 256
-
+    spv->BatchTime_w1_t64_kv256_cute64_bMerge(100, 1 << 19, 256);
+    spv->BatchTime_w1_t128_kv256_cute32_bMerge(100, 1 << 19, 256);
+    spv->BatchTime_w1_t128_kv256_cute64_bMerge(100, 1 << 19, 256);      //Best 256
+    spv->BatchTime_w1_t256_kv256_cute32_bMerge(100, 1 << 19, 256);
+    
     //512
     spv->BatchTime_w1_t64_kv512_cute64_bMerge(100, 1 << 18, 512);
-    spv->BatchTime_w1_t128_kv512_cute64_bMerge(100, 1 << 18, 512);      //Best 512
+    spv->BatchTime_w1_t128_kv512_cute64_bMerge(100, 1 << 18, 512);
     spv->BatchTime_w1_t256_kv512_cute64_bMerge(100, 1 << 18, 512);
-
+    
     //1024
     spv->BatchTime_w1_t128_kv1024_cute64_bMerge(100, 1 << 17, 1024);
     spv->BatchTime_w1_t256_kv1024_cute64_bMerge(100, 1 << 17, 1024);
@@ -103,11 +111,12 @@ int main()
 
     //256
     spv->BatchTime_w1_t64_kv256_radix(100, 1 << 19, 256);
-
+    
     //512
     spv->BatchTime_w1_t64_kv512_radix(100, 1 << 18, 512);
-    spv->BatchTime_w1_t128_kv512_radix(100, 1 << 18, 512);
-
+    spv->BatchTime_w1_t128_kv512_radix(100, 1 << 18, 512);              //Best 512
+    spv->BatchTime_w1_t256_kv512_radix(100, 1 << 18, 512);
+    
     //1024
     spv->BatchTime_w1_t128_kv1024_radix(100, 1 << 17, 1024);            //Best 1024
     spv->BatchTime_w1_t256_kv1024_radix(100, 1 << 17, 1024);
@@ -118,8 +127,7 @@ int main()
     
     //4096
     spv->BatchTime_w1_t512_kv4096_radix(100, 1 << 15, 4096);            //Only available 4096
-
     spv->~SplitSortVariantTester();*/
-
+    
     return 0;
 }
