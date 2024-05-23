@@ -27,7 +27,8 @@ namespace SplitSort
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBins32<32, 128, 4, BITS_TO_SORT>(
             segments,
@@ -36,7 +37,8 @@ namespace SplitSort
             sort,
             payloads,
             totalSegCount,
-            totalSegLength);
+            totalSegLength,
+            segCountInBin);
     };
 
     //w4_t32_kv64_cute64_wMerge
@@ -47,7 +49,8 @@ namespace SplitSort
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<2, 64, 256, 4, 5, 6>(
             segments,
@@ -56,6 +59,7 @@ namespace SplitSort
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort32<BITS_TO_SORT, 2>);
     }
 

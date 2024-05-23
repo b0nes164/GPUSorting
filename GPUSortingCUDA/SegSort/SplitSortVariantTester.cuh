@@ -96,7 +96,8 @@ public:
                 m_sort,
                 m_payloads,
                 totalSegCount,
-                totalSegCount * segLength);
+                totalSegCount * segLength,
+                totalSegCount);
 
         Print<<<1,1>>>(m_sort, totalSegCount * segLength);
         if (ValidateSegSortFixedLength(segLength, totalSegCount))
@@ -1188,6 +1189,7 @@ private:
             uint32_t*,
             uint32_t*,
             const uint32_t,
+            const uint32_t,
             const uint32_t))
     {
         cudaEvent_t start;
@@ -1208,14 +1210,15 @@ private:
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
-            (*Sort)<<<segHist[0] / warpGroups, sortThreads>>>(
+            (*Sort)<<<divRoundUp(segHist[0], warpGroups), sortThreads>>>(
                 m_segments,
                 m_binOffsets,
                 m_minBinSegCounts,
                 m_sort,
                 m_payloads,
                 totalSegCount,
-                totalSegCount * segLength);
+                totalSegCount * segLength,
+                totalSegCount);
             cudaEventRecord(stop);
             cudaEventSynchronize(stop);
             
@@ -1249,6 +1252,7 @@ private:
             uint32_t*,
             uint32_t*,
             const uint32_t,
+            const uint32_t,
             const uint32_t))
     {
         cudaEvent_t start;
@@ -1269,13 +1273,14 @@ private:
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
-            (*Sort)<<<segHist[segHistOffset] / warpGroups, sortThreads>>>(
+            (*Sort)<<<divRoundUp(segHist[segHistOffset], warpGroups), sortThreads>>>(
                 m_segments,
                 m_binOffsets,
                 m_sort,
                 m_payloads,
                 totalSegCount,
-                totalSegCount * segLength);
+                totalSegCount * segLength,
+                totalSegCount);
             cudaEventRecord(stop);
             cudaEventSynchronize(stop);
 

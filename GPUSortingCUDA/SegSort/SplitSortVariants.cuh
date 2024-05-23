@@ -430,9 +430,13 @@ __device__ __forceinline__ void SplitSortBins32(
     uint32_t* sort,
     uint32_t* payloads,
     const uint32_t totalSegCount,
-    const uint32_t totalSegLength)
+    const uint32_t totalSegLength,
+    const uint32_t segCountInBin)
 {
-    __shared__ uint32_t s_bins[BLOCK_KEYS];
+    if (blockIdx.x * WARPS + WARP_INDEX >= segCountInBin)
+        return;
+
+    __shared__ uint32_t s_bins[BLOCK_KEYS + WARPS];
     uint32_t* s_warpBins = &s_bins[WARP_INDEX * WARP_KEYS];
 
     const uint32_t binOffset = binOffsets[blockIdx.x * WARPS + WARP_INDEX];
@@ -680,6 +684,7 @@ __device__ __forceinline__ void SplitSortWarp(
     uint32_t* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength,
+    const uint32_t segCountInBin,
     void (*CuteSortVariant)(uint32_t*, uint16_t*, uint32_t*, const uint32_t, const uint32_t))
 {
     __shared__ uint32_t s_memPreMerge[BLOCK_KEYS];
@@ -1163,7 +1168,7 @@ __device__ __forceinline__ void GetDiagsAndMergeWarpReg(
     __syncwarp(0xffffffff);
 }
 
-//incomplete testing only
+//incomplete; testing only
 template<
     uint32_t KEYS_PER_THREAD,
     uint32_t WARP_KEYS,
@@ -1454,7 +1459,6 @@ __device__ __forceinline__ void SplitSortRadix(
     }
 }
 
-//Enclose global kernels in namespace for testing
 namespace SplitSortVariants
 {
     template<
@@ -1467,7 +1471,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBins32<32, 32 * WARPS, WARPS, BITS_TO_SORT>(
             segments,
@@ -1476,7 +1481,8 @@ namespace SplitSortVariants
             sort,
             payloads,
             totalSegCount,
-            totalSegLength);
+            totalSegLength,
+            segCountInBin);
     }
 
     template<
@@ -1488,7 +1494,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<2, 64, 64 * WARPS, WARPS, 5, 6>(
             segments,
@@ -1497,6 +1504,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort32<BITS_TO_SORT, 2>);
     }
 
@@ -1504,13 +1512,14 @@ namespace SplitSortVariants
     template<
         uint32_t WARPS,
         uint32_t BITS_TO_SORT>
-        __global__ void t32_kv64_cute32_wRegMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            uint32_t* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength)
+    __global__ void t32_kv64_cute32_wRegMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        uint32_t* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarpReg<2, 64, 64 * WARPS, WARPS, 5, 6>(
             segments,
@@ -1519,6 +1528,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+
             CuteSort32<BITS_TO_SORT, 2>);
     }
 
@@ -1531,7 +1541,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<2, 64, 64 * WARPS, WARPS, 6, 6>(
             segments,
@@ -1540,6 +1551,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort64<BITS_TO_SORT, 2>);
     }
 
@@ -1552,7 +1564,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<4, 128, 128 * WARPS, WARPS, 5, 7>(
             segments,
@@ -1561,6 +1574,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort32<BITS_TO_SORT, 4>);
     }
 
@@ -1573,7 +1587,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<4, 128, 128 * WARPS, WARPS, 6, 7>(
             segments,
@@ -1582,6 +1597,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort64<BITS_TO_SORT, 4>);
     }
 
@@ -1594,7 +1610,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 128, WARPS / 2, 2, 5, 6, 7>(
             segments,
@@ -1615,7 +1632,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 128, WARPS / 2, 2, 6, 6, 7>(
             segments,
@@ -1636,7 +1654,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<8, 256, WARPS * 256, WARPS, 5, 8>(
             segments,
@@ -1645,6 +1664,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort32<BITS_TO_SORT, 8>);
     }
 
@@ -1657,15 +1677,17 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
-        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 6>(
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 8>(
             segments,
             binOffsets,
             sort,
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort64<BITS_TO_SORT, 8>);
     }
 
@@ -1678,7 +1700,8 @@ namespace SplitSortVariants
             uint32_t* sort,
             uint32_t* payloads,
             const uint32_t totalSegCount,
-            const uint32_t totalSegLength)
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
     {
         SplitSortWarp<8, 256, WARPS * 256, WARPS, 7, 8>(
             segments,
@@ -1687,6 +1710,7 @@ namespace SplitSortVariants
             payloads,
             totalSegCount,
             totalSegLength,
+            segCountInBin,
             CuteSort128<BITS_TO_SORT, 8>);
     }
 
@@ -1699,7 +1723,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 256, WARPS / 2, 2, 5, 7, 8>(
             segments,
@@ -1720,7 +1745,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 256, WARPS / 2, 2, 6, 7, 8>(
             segments,
@@ -1741,7 +1767,8 @@ namespace SplitSortVariants
             uint32_t* sort,
             uint32_t* payloads,
             const uint32_t totalSegCount,
-            const uint32_t totalSegLength)
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 256, WARPS / 4, 4, 5, 6, 8>(
             segments,
@@ -1762,7 +1789,8 @@ namespace SplitSortVariants
             uint32_t* sort,
             uint32_t* payloads,
             const uint32_t totalSegCount,
-            const uint32_t totalSegLength)
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 256, WARPS / 4, 4, 6, 6, 8>(
             segments,
@@ -1783,7 +1811,8 @@ namespace SplitSortVariants
             uint32_t* sort,
             uint32_t* payloads,
             const uint32_t totalSegCount,
-            const uint32_t totalSegLength)
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
     {
         SplitSortBlock<1, 32, 256, WARPS / 8, 8, 5, 5, 8>(
             segments,
@@ -1804,7 +1833,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<8, 256, 512, WARPS / 2, 2, 6, 8, 9>(
             segments,
@@ -1825,7 +1855,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 512, WARPS / 4, 4, 6, 7, 9>(
             segments,
@@ -1846,7 +1877,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 512, WARPS / 8, 8, 6, 6, 9>(
             segments,
@@ -1867,7 +1899,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<8, 256, 1024, WARPS / 4, 4, 6, 8, 10>(
             segments,
@@ -1888,7 +1921,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 1024, WARPS / 8, 8, 6, 7, 10>(
             segments,
@@ -1910,7 +1944,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<2, 2, 64, 128, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -1928,7 +1963,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<2, 4, 128, 256, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -1946,7 +1982,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<2, 8, 256, 512, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -1964,7 +2001,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -1982,7 +2020,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<8, 2, 64, 512, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -2000,7 +2039,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<4, 8, 256, 1024, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -2018,7 +2058,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<8, 4, 128, 1024, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -2036,7 +2077,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<8, 8, 256, 2048, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -2054,7 +2096,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<16, 4, 128, 2048, ROUND_UP_BITS_TO_SORT>(
             segments,
@@ -2072,7 +2115,8 @@ namespace SplitSortVariants
         uint32_t* sort,
         uint32_t* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortRadix<16, 8, 256, 4096, ROUND_UP_BITS_TO_SORT>(
             segments,

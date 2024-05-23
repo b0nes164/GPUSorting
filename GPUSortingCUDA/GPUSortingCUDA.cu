@@ -52,10 +52,11 @@ int main()
     EmulatedDeadlockingDispatcher* d = new EmulatedDeadlockingDispatcher(1 << 28);
     d->BatchTimingKeysOnly(1 << 28, 100, 10, ENTROPY_PRESET_1);
     d->~EmulatedDeadlockingDispatcher();
-
+        
     //-----------------SEGMETED SORT-----------------
     SplitSortDispatcher* sp = new SplitSortDispatcher(1 << 27, 1 << 22);
     sp->BatchTimeFixedSegmentLength(100, 1 << 22, 32);
+    sp->TestAllFixedSegmentLengths<32>(10);
     sp->~SplitSortDispatcher();
 
     //-----------------SEGMENT VARIANTS-----------------

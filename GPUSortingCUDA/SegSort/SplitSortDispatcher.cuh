@@ -97,10 +97,10 @@ public:
         for (uint32_t i = 0; i <= batchCount; ++i)
         {
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
-            InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
-            InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
-            //InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
-            //InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
+            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
             DispatchSplitSort<32>(totalSegCount, totalSegCount * segLength);
@@ -122,6 +122,50 @@ public:
         printf("\n");
         printf("Total time elapsed: %f\n", totalTime);
         printf("Estimated speed at %u 32-bit elements: %E pairs/sec\n\n", size, size / totalTime * batchCount);
+    }
+
+    template<uint32_t BITS_TO_SORT>
+    void TestAllFixedSegmentLengths(uint32_t testsPerSegmentLength)
+    {
+        if (k_maxSize < (1 << 27))
+        {
+            printf("Error fixed segment length test requires 2^27 allocated sort memory. \n");
+            return;
+        }
+
+        if (!testsPerSegmentLength)
+        {
+            printf("Error at least one test is required at each segment length. \n");
+            return;
+        }
+
+        const uint32_t segCount = 1 << 14;
+        printf("Beginning Split Sort Test All Fixed Segment Lengths 1 - 4096 \n");
+        
+        uint32_t testsPassed = 0;
+        for (uint32_t segLength = 1; segLength <= 4096; ++segLength)
+        {
+            for (uint32_t i = 0; i < testsPerSegmentLength; ++i)
+            {
+                InitSegLengthsFixed<<<256,256>>>(m_segments, segCount, segLength);
+                InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, segCount, i + 10);
+                InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, segCount, i + 10);
+                DispatchSplitSort<BITS_TO_SORT>(segCount, segLength * segCount);
+                if (ValidateSegSortFixedLength(segCount, segLength, false))
+                    testsPassed++;
+                else
+                    printf("Test failed at fixed seg length: %u \n", segLength);
+            }
+
+            if ((segLength & 63) == 0)
+                printf(". ");
+        }
+
+        const uint32_t testsExpected = 4096 * testsPerSegmentLength;
+        if (testsPassed == testsExpected)
+            printf("SPLIT SORT ALL FIXED SEG LENGTHS TESTS PASSED \n");
+        else
+            printf("SPLIT SORT FIXED SEG LENGTH TESTS FAILED. \n");
     }
 
 private:
@@ -175,7 +219,8 @@ private:
                 m_sort,
                 m_payloads,
                 totalSegCount,
-                totalSegLength);
+                totalSegLength,
+                segsInCurBin);
         }
         
         segsInCurBin = segHist[2] - segHist[1];
@@ -187,7 +232,8 @@ private:
                 m_sort,
                 m_payloads,
                 totalSegCount,
-                totalSegLength);
+                totalSegLength,
+                segsInCurBin);
         }
 
         segsInCurBin = segHist[3] - segHist[2];
@@ -266,5 +312,21 @@ private:
 
         for (uint32_t i = 0; i < k_segHistSize - 1; ++i)
             cudaStreamDestroy(streams[i]);
+    }
+
+    bool ValidateSegSortFixedLength(uint32_t segCount, uint32_t segLength, bool shouldPrint)
+    {
+        uint32_t errCount[1];
+        cudaMemset(m_errCount, 0, sizeof(uint32_t));
+        cudaDeviceSynchronize();
+        ValidateFixLengthSegments<<<256, 256>>>(m_sort, m_errCount, segLength, segCount);
+        ValidateFixLengthSegments<<<256, 256>>>(m_payloads, m_errCount, segLength, segCount);
+        cudaDeviceSynchronize();
+        cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+        cudaDeviceSynchronize();
+        if (shouldPrint && errCount[0])
+            Print<<<1,1>>>(m_sort, segCount * segLength);
+        cudaDeviceSynchronize();
+        return !errCount[0];
     }
 };
