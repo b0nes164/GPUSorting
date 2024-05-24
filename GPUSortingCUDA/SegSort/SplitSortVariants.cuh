@@ -422,13 +422,14 @@ template<
     uint32_t WARP_KEYS,
     uint32_t BLOCK_KEYS,
     uint32_t WARPS,
-    uint32_t BITS_TO_SORT>
+    uint32_t BITS_TO_SORT,
+    class K>
 __device__ __forceinline__ void SplitSortBins32(
     const uint32_t* segments,
     const uint32_t* binOffsets,
     const uint32_t* minBinSegCounts,
     uint32_t* sort,
-    uint32_t* payloads,
+    K* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength,
     const uint32_t segCountInBin)
@@ -452,7 +453,7 @@ __device__ __forceinline__ void SplitSortBins32(
     uint16_t index;
     CuteSort32Bin<BITS_TO_SORT>(key, index, binInfo, totalLocalLength);
 
-    uint32_t payload;
+    K payload;
     if (getLaneId() < totalLocalLength)
     {
         sort[index + segmentStart] = key;
@@ -676,12 +677,13 @@ template<
     uint32_t BLOCK_KEYS,
     uint32_t WARPS,
     uint32_t WARP_LOG_START,
-    uint32_t WARP_LOG_END>
+    uint32_t WARP_LOG_END,
+    class K>
 __device__ __forceinline__ void SplitSortWarp(
     const uint32_t* segments,
     const uint32_t* binOffsets,
     uint32_t* sort,
-    uint32_t* payloads,
+    K* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength,
     const uint32_t segCountInBin,
@@ -735,7 +737,7 @@ __device__ __forceinline__ void SplitSortWarp(
             sort[i + segmentStart] = s_warpMemPostMerge[i];
     }
 
-    uint32_t vals[KEYS_PER_THREAD];
+    K vals[KEYS_PER_THREAD];
     #pragma unroll
     for (uint32_t i = getLaneId(), k = 0; k < KEYS_PER_THREAD; i += LANE_COUNT, ++k)
     {
@@ -744,6 +746,8 @@ __device__ __forceinline__ void SplitSortWarp(
     }
     __syncwarp(0xffffffff);
 
+    //Pre scattering unnecessary?
+    /*
     #pragma unroll
     for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
         s_warpMemPreMerge[indexes[k]] = vals[k];          //No check necessary
@@ -754,6 +758,14 @@ __device__ __forceinline__ void SplitSortWarp(
     {
         if (i < totalLocalLength)
             payloads[i + segmentStart] = s_warpMemPreMerge[i];
+    }
+    */
+    
+    #pragma unroll
+    for (uint32_t i = getLaneId(), k = 0; k < KEYS_PER_THREAD; i += LANE_COUNT, ++k)
+    {
+        if (i < totalLocalLength)
+            payloads[indexes[k] + segmentStart] = vals[k];
     }
 }
 
@@ -853,12 +865,13 @@ template<
     uint32_t WARPS_PER_WARP_GROUP,
     uint32_t WARP_LOG_START,
     uint32_t WARP_LOG_END,
-    uint32_t BLOCK_LOG_END>
+    uint32_t BLOCK_LOG_END,
+    class K>
 __device__ __forceinline__ void SplitSortBlock(
     const uint32_t* segments,
     const uint32_t* binOffsets,
     uint32_t* sort,
-    uint32_t* payloads,
+    K* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength,
     void (*CuteSortVariant)(uint32_t*, uint16_t*, uint32_t*, const uint32_t, const uint32_t))
@@ -936,7 +949,7 @@ __device__ __forceinline__ void SplitSortBlock(
             sort[i + segmentStart] = s_warpGroupPostMerge[i];
     }
 
-    uint32_t vals[KEYS_PER_THREAD];
+    K vals[KEYS_PER_THREAD];
     #pragma unroll
     for (uint32_t i = getLaneId() + WARP_INDEX % WARPS_PER_WARP_GROUP * WARP_KEYS, k = 0;
         k < KEYS_PER_THREAD;
@@ -946,6 +959,8 @@ __device__ __forceinline__ void SplitSortBlock(
             vals[k] = payloads[i + segmentStart];
     }
 
+    //Pre scattering unnecessary?
+    /*
     #pragma unroll
     for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
         s_warpGroupPreMerge[index[k]] = vals[k];        //No check necessary
@@ -958,6 +973,17 @@ __device__ __forceinline__ void SplitSortBlock(
     {
         if (i < totalLocalLength)
             payloads[i + segmentStart] = s_warpGroupPreMerge[i];
+    }
+    */
+
+    __syncthreads();
+    #pragma unroll
+    for (uint32_t i = getLaneId() + WARP_INDEX % WARPS_PER_WARP_GROUP * WARP_KEYS, k = 0;
+        k < KEYS_PER_THREAD;
+        i += LANE_COUNT, ++k)
+    {
+        if (i < totalLocalLength)
+            payloads[index[k] + segmentStart] = vals[k];
     }
 }
 
@@ -1175,12 +1201,13 @@ template<
     uint32_t BLOCK_KEYS,
     uint32_t WARPS,
     uint32_t WARP_LOG_START,
-    uint32_t WARP_LOG_END>
+    uint32_t WARP_LOG_END,
+    class K>
 __device__ __forceinline__ void SplitSortWarpReg(
     const uint32_t* segments,
     const uint32_t* binOffsets,
     uint32_t* sort,
-    uint32_t* payloads,
+    K* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength,
     void (*CuteSortVariant)(uint32_t*, uint16_t*, uint32_t*, const uint32_t, const uint32_t))
@@ -1270,17 +1297,98 @@ __device__ __forceinline__ void RankKeys(
     }
 }
 
+//If possible, scatter payloads into shared memory
+//to coalesce writes to device memory, else if there is not enough
+//shared memory available (when payloads are larger than keys in some cases),
+//fallback on a routine where payloads are scattered directly from registers to device memory
+template<
+    uint32_t KEYS_PER_WARP,
+    uint32_t KEYS_PER_THREAD,
+    uint32_t PART_SIZE,
+    uint32_t SHARED_MEM_SIZE,
+    class K>
+__device__ __forceinline__ void ScatterPayloads(
+    K* payloads,
+    K* vals,
+    K* s_mem,
+    const uint16_t* indexes,
+    const uint16_t* s_indexes,
+    const uint32_t segmentStart,
+    const uint32_t totalLocalLength)
+{
+    if (sizeof(K) * PART_SIZE <= SHARED_MEM_SIZE * sizeof(uint32_t))
+    {
+        #pragma unroll
+        for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
+            k < KEYS_PER_THREAD;
+            i += LANE_COUNT, ++k)
+        {
+            if (i < totalLocalLength)
+                s_mem[s_indexes[indexes[k]]] = vals[k];
+        }
+        __syncthreads();
+
+        #pragma unroll
+        for (uint32_t i = threadIdx.x, k = 0; k < KEYS_PER_THREAD; i += blockDim.x, ++k)
+        {
+            if (i < totalLocalLength)
+                payloads[i + segmentStart] = s_mem[i];
+        }
+    }
+
+    if (sizeof(K) * PART_SIZE > SHARED_MEM_SIZE * sizeof(uint32_t))
+    {
+        #pragma unroll
+        for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
+            k < KEYS_PER_THREAD;
+            i += LANE_COUNT, ++k)
+        {
+            if (i < totalLocalLength)
+                payloads[s_indexes[indexes[k]] + segmentStart] = vals[k];
+        }
+    }
+}
+
+template<uint32_t KEYS_PER_WARP, uint32_t KEYS_PER_THREAD>
+__device__ __forceinline__ void ScatterPayloads<uint32_t>(
+    uint32_t* payloads,
+    uint32_t* vals,
+    uint32_t* s_mem,
+    const uint16_t* indexes,
+    const uint16_t* s_indexes,
+    const uint32_t segmentStart,
+    const uint32_t totalLocalLength)
+{
+    #pragma unroll
+    for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
+        k < KEYS_PER_THREAD;
+        i += LANE_COUNT, ++k)
+    {
+        if (i < totalLocalLength)
+            s_mem[s_indexes[indexes[k]]] = vals[k];
+    }
+    __syncthreads();
+
+    #pragma unroll
+    for (uint32_t i = threadIdx.x, k = 0; k < KEYS_PER_THREAD; i += blockDim.x, ++k)
+    {
+        if(i < totalLocalLength)
+            payloads[i + segmentStart] = s_mem[i];
+    }
+}
+
 template<
     uint32_t WARPS,
     uint32_t KEYS_PER_THREAD,
     uint32_t KEYS_PER_WARP,
     uint32_t PART_SIZE,
-    uint32_t BITS_TO_SORT>
+    uint32_t BITS_TO_SORT,
+    class K>
 __device__ __forceinline__ void SplitSortRadix(
     const uint32_t* segments,
     const uint32_t* binOffsets,
     uint32_t* sort,
-    uint32_t* payloads,
+    K* payloads,
     const uint32_t totalSegCount,
     const uint32_t totalSegLength)
 {
@@ -1430,7 +1538,7 @@ __device__ __forceinline__ void SplitSortRadix(
             sort[i + segmentStart] = s_hist[i];
     }
 
-    uint32_t vals[KEYS_PER_THREAD];
+    K vals[KEYS_PER_THREAD];
     #pragma unroll
     for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
         k < KEYS_PER_THREAD;
@@ -1441,40 +1549,38 @@ __device__ __forceinline__ void SplitSortRadix(
     }
     __syncthreads();
 
-    #pragma unroll
-    for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
-        k < KEYS_PER_THREAD;
-        i += LANE_COUNT, ++k)
-    {
-        if (i < totalLocalLength)
-            s_hist[s_indexes[indexes[k]]] = vals[k];
-    }
-    __syncthreads();
-
-    #pragma unroll
-    for (uint32_t i = threadIdx.x, k = 0; k < KEYS_PER_THREAD; i += blockDim.x, ++k)
-    {
-        if(i < totalLocalLength)
-            payloads[i + segmentStart] = s_hist[i];
-    }
+    ScatterPayloads<
+        KEYS_PER_WARP,
+        KEYS_PER_THREAD,
+        PART_SIZE,
+        RADIX* WARPS,
+        K>(
+            payloads,
+            vals,
+            reinterpret_cast<K*>(s_hist),
+            indexes,
+            s_indexes,
+            segmentStart,
+            totalLocalLength);
 }
 
 namespace SplitSortVariants
 {
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv32_cute32_bin(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         const uint32_t* minBinSegCounts,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBins32<32, 32 * WARPS, WARPS, BITS_TO_SORT>(
+        SplitSortBins32<32, 32 * WARPS, WARPS, BITS_TO_SORT, K>(
             segments,
             binOffsets,
             minBinSegCounts,
@@ -1487,17 +1593,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv64_cute32_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<2, 64, 64 * WARPS, WARPS, 5, 6>(
+        SplitSortWarp<2, 64, 64 * WARPS, WARPS, 5, 6, K>(
             segments,
             binOffsets,
             sort,
@@ -1511,17 +1618,18 @@ namespace SplitSortVariants
     //incomplete, test only
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv64_cute32_wRegMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarpReg<2, 64, 64 * WARPS, WARPS, 5, 6>(
+        SplitSortWarpReg<2, 64, 64 * WARPS, WARPS, 5, 6, K>(
             segments,
             binOffsets,
             sort,
@@ -1534,17 +1642,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv64_cute64_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<2, 64, 64 * WARPS, WARPS, 6, 6>(
+        SplitSortWarp<2, 64, 64 * WARPS, WARPS, 6, 6, K>(
             segments,
             binOffsets,
             sort,
@@ -1557,17 +1666,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv128_cute32_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<4, 128, 128 * WARPS, WARPS, 5, 7>(
+        SplitSortWarp<4, 128, 128 * WARPS, WARPS, 5, 7, K>(
             segments,
             binOffsets,
             sort,
@@ -1580,17 +1690,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv128_cute64_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<4, 128, 128 * WARPS, WARPS, 6, 7>(
+        SplitSortWarp<4, 128, 128 * WARPS, WARPS, 6, 7, K>(
             segments,
             binOffsets,
             sort,
@@ -1603,17 +1714,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv128_cute32_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 128, WARPS / 2, 2, 5, 6, 7>(
+        SplitSortBlock<2, 64, 128, WARPS / 2, 2, 5, 6, 7, K>(
             segments,
             binOffsets,
             sort,
@@ -1625,17 +1737,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv128_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 128, WARPS / 2, 2, 6, 6, 7>(
+        SplitSortBlock<2, 64, 128, WARPS / 2, 2, 6, 6, 7, K>(
             segments,
             binOffsets,
             sort,
@@ -1647,17 +1760,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv256_cute32_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<8, 256, WARPS * 256, WARPS, 5, 8>(
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 5, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1670,17 +1784,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t32_kv256_cute64_wMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 8>(
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 6, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1693,17 +1808,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
         __global__ void t32_kv256_cute128_wMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
-            uint32_t* payloads,
+            K* payloads,
             const uint32_t totalSegCount,
             const uint32_t totalSegLength,
             const uint32_t segCountInBin)
     {
-        SplitSortWarp<8, 256, WARPS * 256, WARPS, 7, 8>(
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 7, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1716,17 +1832,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv256_cute32_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<4, 128, 256, WARPS / 2, 2, 5, 7, 8>(
+        SplitSortBlock<4, 128, 256, WARPS / 2, 2, 5, 7, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1738,17 +1855,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv256_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<4, 128, 256, WARPS / 2, 2, 6, 7, 8>(
+        SplitSortBlock<4, 128, 256, WARPS / 2, 2, 6, 7, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1760,17 +1878,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
         __global__ void t128_kv256_cute32_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
-            uint32_t* payloads,
+            K* payloads,
             const uint32_t totalSegCount,
             const uint32_t totalSegLength,
             const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 5, 6, 8>(
+        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 5, 6, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1782,17 +1901,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
         __global__ void t128_kv256_cute64_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
-            uint32_t* payloads,
+            K* payloads,
             const uint32_t totalSegCount,
             const uint32_t totalSegLength,
             const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 6, 6, 8>(
+        SplitSortBlock<2, 64, 256, WARPS / 4, 4, 6, 6, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1804,17 +1924,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
         __global__ void t256_kv256_cute32_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
-            uint32_t* payloads,
+            K* payloads,
             const uint32_t totalSegCount,
             const uint32_t totalSegLength,
             const uint32_t segCountInBin)
     {
-        SplitSortBlock<1, 32, 256, WARPS / 8, 8, 5, 5, 8>(
+        SplitSortBlock<1, 32, 256, WARPS / 8, 8, 5, 5, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -1826,17 +1947,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv512_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<8, 256, 512, WARPS / 2, 2, 6, 8, 9>(
+        SplitSortBlock<8, 256, 512, WARPS / 2, 2, 6, 8, 9, K>(
             segments,
             binOffsets,
             sort,
@@ -1848,17 +1970,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t128_kv512_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<4, 128, 512, WARPS / 4, 4, 6, 7, 9>(
+        SplitSortBlock<4, 128, 512, WARPS / 4, 4, 6, 7, 9, K>(
             segments,
             binOffsets,
             sort,
@@ -1870,17 +1993,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t256_kv512_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 512, WARPS / 8, 8, 6, 6, 9>(
+        SplitSortBlock<2, 64, 512, WARPS / 8, 8, 6, 6, 9, K>(
             segments,
             binOffsets,
             sort,
@@ -1892,17 +2016,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t128_kv1024_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<8, 256, 1024, WARPS / 4, 4, 6, 8, 10>(
+        SplitSortBlock<8, 256, 1024, WARPS / 4, 4, 6, 8, 10, K>(
             segments,
             binOffsets,
             sort,
@@ -1914,17 +2039,18 @@ namespace SplitSortVariants
 
     template<
         uint32_t WARPS,
-        uint32_t BITS_TO_SORT>
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t256_kv1024_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortBlock<4, 128, 1024, WARPS / 8, 8, 6, 7, 10>(
+        SplitSortBlock<4, 128, 1024, WARPS / 8, 8, 6, 7, 10, K>(
             segments,
             binOffsets,
             sort,
@@ -1937,17 +2063,17 @@ namespace SplitSortVariants
     //RADIX SORTS
     #define ROUND_UP_BITS_TO_SORT   ((BITS_TO_SORT >> 3) + ((BITS_TO_SORT & 7) ? 1 : 0) << 3)
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t64_kv128_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<2, 2, 64, 128, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<2, 2, 64, 128, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -1956,17 +2082,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t64_kv256_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<2, 4, 128, 256, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<2, 4, 128, 256, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -1975,17 +2101,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t64_kv512_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<2, 8, 256, 512, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<2, 8, 256, 512, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -1994,17 +2120,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t128_kv512_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2013,17 +2139,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t256_kv512_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<8, 2, 64, 512, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<8, 2, 64, 512, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2032,17 +2158,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t128_kv1024_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<4, 8, 256, 1024, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<4, 8, 256, 1024, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2051,17 +2177,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t256_kv1024_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<8, 4, 128, 1024, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<8, 4, 128, 1024, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2070,17 +2196,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t256_kv2048_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<8, 8, 256, 2048, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<8, 8, 256, 2048, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2089,17 +2215,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t512_kv2048_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<16, 4, 128, 2048, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<16, 4, 128, 2048, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,
@@ -2108,17 +2234,17 @@ namespace SplitSortVariants
             totalSegLength);
     }
 
-    template<uint32_t BITS_TO_SORT>
+    template<uint32_t BITS_TO_SORT, class K>
     __global__ void t512_kv4096_radix(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
-        uint32_t* payloads,
+        K* payloads,
         const uint32_t totalSegCount,
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        SplitSortRadix<16, 8, 256, 4096, ROUND_UP_BITS_TO_SORT>(
+        SplitSortRadix<16, 8, 256, 4096, ROUND_UP_BITS_TO_SORT, K>(
             segments,
             binOffsets,
             sort,

@@ -17,6 +17,7 @@
 #include "SplitSort.cuh"
 #include "../UtilityKernels.cuh"
 
+template<class K>
 class SplitSortDispatcher
 {
     const uint32_t k_nextFitSize = 2048;
@@ -27,7 +28,7 @@ class SplitSortDispatcher
     const uint32_t k_maxSegments;
 
     uint32_t* m_sort;
-    uint32_t* m_payloads;
+    K* m_payloads;
     uint32_t* m_segments;
     uint32_t* m_minBinSegCounts;
     uint32_t* m_binOffsets;
@@ -37,15 +38,20 @@ class SplitSortDispatcher
     uint32_t* m_totalLength;
     uint32_t* m_errCount;
 
+    int* a;
+    int* b;
+
 public:
+    template<class K>
     SplitSortDispatcher(
         uint32_t maxSize,
-        uint32_t maxSegments) :
+        uint32_t maxSegments,
+        K dummy) :
         k_maxSize(maxSize),
         k_maxSegments(maxSegments)
     {
         cudaMalloc(&m_sort, k_maxSize * sizeof(uint32_t));
-        cudaMalloc(&m_payloads, k_maxSize * sizeof(uint32_t));
+        cudaMalloc(&m_payloads, k_maxSize * sizeof(K));
         cudaMalloc(&m_segments, k_maxSegments * sizeof(uint32_t));
         cudaMalloc(&m_minBinSegCounts, k_maxSegments * sizeof(uint32_t));
         cudaMalloc(&m_binOffsets, k_maxSegments * sizeof(uint32_t));
@@ -99,11 +105,10 @@ public:
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
-            DispatchSplitSort<32>(totalSegCount, totalSegCount * segLength);
+            DispatchSplitSortPairs<32>(totalSegCount, totalSegCount * segLength);
             cudaEventRecord(stop);
             cudaEventSynchronize(stop);
 
@@ -148,9 +153,8 @@ public:
             for (uint32_t i = 0; i < testsPerSegmentLength; ++i)
             {
                 InitSegLengthsFixed<<<256,256>>>(m_segments, segCount, segLength);
-                InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, segCount, i + 10);
-                InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, segCount, i + 10);
-                DispatchSplitSort<BITS_TO_SORT>(segCount, segLength * segCount);
+                InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, segCount, i + 10);
+                DispatchSplitSortPairs<BITS_TO_SORT>(segCount, segLength * segCount);
                 if (ValidateSegSortFixedLength(segCount, segLength, false))
                     testsPassed++;
                 else
@@ -175,143 +179,19 @@ private:
     }
 
     template<uint32_t BITS_TO_SORT>
-    void DispatchSplitSort(uint32_t totalSegCount, uint32_t totalSegLength)
+    void DispatchSplitSortPairs(uint32_t totalSegCount, uint32_t totalSegLength)
     {
-        uint32_t segHist[9];
-        cudaStream_t streams[9 - 1];
-        for (uint32_t i = 0; i < k_segHistSize - 1; ++i)
-            cudaStreamCreate(&streams[i]);
-
-        const uint32_t binPackPartitions = divRoundUp(totalSegCount, k_nextFitSize);
-        cudaMemset(m_index, 0, sizeof(uint32_t));
-        cudaMemset(m_segHist, 0, k_segHistSize * sizeof(uint32_t));
-        cudaMemset(m_reduction, 0, binPackPartitions * sizeof(uint32_t));
-        cudaDeviceSynchronize();
-
-        SplitSortBinning::NextFitBinPacking<<<binPackPartitions, k_nextFitThreads>>>(
+        SplitSort::SplitSortPairs<BITS_TO_SORT>(
             m_segments,
-            m_segHist,
-            m_minBinSegCounts,
             m_binOffsets,
+            m_sort,
+            m_payloads,
+            m_segHist,
             m_index,
             m_reduction,
+            m_minBinSegCounts,
             totalSegCount,
             totalSegLength);
-
-        SplitSortBinning::Scan<<<1, 32>>> (m_segHist);
-
-        cudaMemcpyAsync(segHist, m_segHist, k_segHistSize * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-
-        SplitSortBinning::Bin<<<divRoundUp(totalSegCount, 256), 256>>>(
-            m_segments,
-            m_segHist,
-            m_binOffsets,
-            totalSegCount,
-            totalSegLength);
-
-        uint32_t segsInCurBin = segHist[1] - segHist[0];
-        if (segsInCurBin)
-        {
-            SplitSort::SortLe32<BITS_TO_SORT><<<divRoundUp(segsInCurBin, 4), 128>>>(
-                m_segments,
-                m_binOffsets,
-                m_minBinSegCounts,
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength,
-                segsInCurBin);
-        }
-        
-        segsInCurBin = segHist[2] - segHist[1];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt32Le64<BITS_TO_SORT><<<divRoundUp(segsInCurBin, 4), 128, 0, streams[1]>>>(
-                m_segments,
-                m_binOffsets + segHist[1],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength,
-                segsInCurBin);
-        }
-
-        segsInCurBin = segHist[3] - segHist[2];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt64Le128<BITS_TO_SORT><<<segsInCurBin, 64, 0, streams[2]>>>(
-                m_segments,
-                m_binOffsets + segHist[2],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        segsInCurBin = segHist[4] - segHist[3];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt128Le256<BITS_TO_SORT><<<segsInCurBin, 128, 0, streams[3]>>>(
-                m_segments,
-                m_binOffsets + segHist[3],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        segsInCurBin = segHist[5] - segHist[4];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt256Le512<BITS_TO_SORT><<<segsInCurBin, 128, 0, streams[4]>>>(
-                m_segments,
-                m_binOffsets + segHist[4],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        segsInCurBin = segHist[6] - segHist[5];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, 128, 0, streams[5]>>>(
-                m_segments,
-                m_binOffsets + segHist[5],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        segsInCurBin = segHist[7] - segHist[6];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt1024Le2048<BITS_TO_SORT><<<segsInCurBin, 256, 0, streams[6]>>>(
-                m_segments,
-                m_binOffsets + segHist[6],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        segsInCurBin = segHist[8] - segHist[7];
-        if (segsInCurBin)
-        {
-            SplitSort::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512, 0, streams[7]>>>(
-                m_segments,
-                m_binOffsets + segHist[7],
-                m_sort,
-                m_payloads,
-                totalSegCount,
-                totalSegLength);
-        }
-
-        //onesweep here :)
-
-        for (uint32_t i = 0; i < k_segHistSize - 1; ++i)
-            cudaStreamDestroy(streams[i]);
     }
 
     bool ValidateSegSortFixedLength(uint32_t segCount, uint32_t segLength, bool shouldPrint)
@@ -319,8 +199,7 @@ private:
         uint32_t errCount[1];
         cudaMemset(m_errCount, 0, sizeof(uint32_t));
         cudaDeviceSynchronize();
-        ValidateFixLengthSegments<<<256, 256>>>(m_sort, m_errCount, segLength, segCount);
-        ValidateFixLengthSegments<<<256, 256>>>(m_payloads, m_errCount, segLength, segCount);
+        ValidateFixLengthSegments<<<256,256>>>(m_sort, m_payloads, m_errCount, segLength, segCount);
         cudaDeviceSynchronize();
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
         cudaDeviceSynchronize();

@@ -238,7 +238,6 @@ __device__ __forceinline__ void NextFitBinPack(
         NextFitBinPackPartial(threadSegments, s_warpHist, minBinsPacked, totalSegCount - NEXT_FIT_BINNING_SIZE * partIndex);
 }
 
-//to do: move histogramming from shared to reg
 __global__ void SplitSortBinning::NextFitBinPacking(
     const uint32_t* segments,
     uint32_t* segHist,

@@ -958,8 +958,7 @@ public:
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
             cub::DeviceSegmentedRadixSort::SortPairs(
@@ -1205,8 +1204,7 @@ private:
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
             //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
@@ -1268,8 +1266,7 @@ private:
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
             //InitFixedSegLengthDescendingValue<<<1024,64>>>(m_sort, segLength, totalSegCount);
             //InitFixedSegLengthDescendingValue<<<1024,64>>>(m_payloads, segLength, totalSegCount);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, segLength, totalSegCount, i + 10);
-            InitFixedSegLengthRandomValue<<<1024,64>>>(m_payloads, segLength, totalSegCount, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);
@@ -1304,8 +1301,7 @@ private:
         uint32_t errCount[1];
         cudaMemset(m_errCount, 0, sizeof(uint32_t));
         cudaDeviceSynchronize();
-        ValidateFixLengthSegments<<<256, 256>>>(m_sort, m_errCount, segLength, segCount);
-        ValidateFixLengthSegments<<<256, 256>>>(m_payloads, m_errCount, segLength, segCount);
+        ValidateFixLengthSegments<<<256, 256>>>(m_sort, m_payloads, m_errCount, segLength, segCount);
         cudaDeviceSynchronize();
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
         cudaDeviceSynchronize();

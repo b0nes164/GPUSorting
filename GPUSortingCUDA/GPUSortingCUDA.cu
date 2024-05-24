@@ -54,7 +54,7 @@ int main()
     d->~EmulatedDeadlockingDispatcher();
         
     //-----------------SEGMETED SORT-----------------
-    SplitSortDispatcher* sp = new SplitSortDispatcher(1 << 27, 1 << 22);
+    SplitSortDispatcher<uint32_t>* sp = new SplitSortDispatcher<uint32_t>(1 << 27, 1 << 22, 1U);
     sp->BatchTimeFixedSegmentLength(100, 1 << 22, 32);
     sp->TestAllFixedSegmentLengths<32>(10);
     sp->~SplitSortDispatcher();

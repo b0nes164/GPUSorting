@@ -128,6 +128,7 @@ __global__ void InitFixedSegLengthDescendingValue(
 
 __global__ void InitFixedSegLengthRandomValue(
     uint32_t* sort,
+    uint32_t* payload,
     uint32_t segLength,
     uint32_t totalSegCount,
     uint32_t seed)
@@ -149,7 +150,50 @@ __global__ void InitFixedSegLengthRandomValue(
             z2 = TAUS_STEP_2;
             z3 = TAUS_STEP_3;
             z4 = LCG_STEP;
-            sort[i + devOffset] = HYBRID_TAUS;
+            const uint32_t t = HYBRID_TAUS;
+            sort[i + devOffset] = t;
+            payload[i + devOffset] = t;
+        }
+    }
+}
+
+__global__ void InitFixedSegLengthRandomValue(
+    uint32_t* sort,
+    double* payload,
+    uint32_t segLength,
+    uint32_t totalSegCount,
+    uint32_t seed)
+{
+    uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+
+    const uint32_t sCount = totalSegCount;
+    const uint32_t sLength = segLength;
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t devOffset = k * sLength;
+        for (uint32_t i = threadIdx.x; i < sLength; i += blockDim.x)
+        {
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            const uint32_t t = HYBRID_TAUS;
+            sort[i + devOffset] = t;
+
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+
+            uint64_t y = (uint64_t)HYBRID_TAUS << 32 | t;
+            //uint64_t y = (uint64_t)t;
+            double x;
+            memcpy(&x, &y, sizeof(double));
+            payload[i + devOffset] = x;
         }
     }
 }
@@ -285,6 +329,7 @@ __global__ void Validate(uint32_t* sort, uint32_t* sortPayload, uint32_t* errCou
 
 __global__ void ValidateFixLengthSegments(
     uint32_t* sort,
+    uint32_t* payload,
     uint32_t* errCount,
     uint32_t segLength,
     uint32_t totalSegCount)
@@ -298,6 +343,43 @@ __global__ void ValidateFixLengthSegments(
         for (uint32_t i = threadIdx.x + 1; i < sLength; i += blockDim.x)
         {
             if(sort[i + devOffset - 1] > sort[i + devOffset])
+                atomicAdd((uint32_t*)&errCount[0], 1);
+
+            if (payload[i + devOffset - 1] > payload[i + devOffset])
+                atomicAdd((uint32_t*)&errCount[0], 1);
+        }
+    }
+}
+
+__global__ void ValidateFixLengthSegments(
+    uint32_t* sort,
+    double* payload,
+    uint32_t* errCount,
+    uint32_t segLength,
+    uint32_t totalSegCount)
+{
+    const uint32_t sCount = totalSegCount;
+    const uint32_t sLength = segLength;
+
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t devOffset = k * sLength;
+        for (uint32_t i = threadIdx.x + 1; i < sLength; i += blockDim.x)
+        {
+            if (sort[i + devOffset - 1] > sort[i + devOffset])
+                atomicAdd((uint32_t*)&errCount[0], 1);
+
+            double d1 = payload[i + devOffset - 1];
+            double d2 = payload[i + devOffset];
+
+            uint32_t u1;
+            uint32_t u2;
+            memcpy(&u1, &d1, sizeof(uint32_t));
+            memcpy(&u2, &d2, sizeof(uint32_t)); //Copy the lower 32 bits, which match the keys as uints
+
+            //If the payloads were moved correctly,
+            //They must also be in sorted order
+            if (u1 > u2)
                 atomicAdd((uint32_t*)&errCount[0], 1);
         }
     }
