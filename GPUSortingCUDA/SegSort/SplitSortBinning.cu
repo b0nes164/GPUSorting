@@ -170,7 +170,7 @@ __device__ __forceinline__ void NextFitBinPackFull(
 {
     uint32_t currentBinTotal = 0;   //What is the total length of segments in this current bin
     uint32_t currentBinCount = 0;   //How many segments are in this current bin?
-    
+
     #pragma unroll
     for (uint32_t i = 0; i < NEXT_FIT_SPT; ++i)
     {

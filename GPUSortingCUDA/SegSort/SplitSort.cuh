@@ -64,7 +64,7 @@ namespace SplitSort
             CuteSort32<BITS_TO_SORT, 2>);
     }
 
-    //w1_t64_kv128_cute64_bMerge
+    //w4_t32_kv128_cute32_wMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt64Le128(
         const uint32_t* segments,
@@ -72,19 +72,21 @@ namespace SplitSort
         uint32_t* sort,
         K* payloads,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
-        SplitSortBlock<2, 64, 128, 1, 2, 6, 6, 7, K>(
+        SplitSortWarp<4, 128, 512, 4, 5, 7, K>(
             segments,
             binOffsets,
             sort,
             payloads,
             totalSegCount,
             totalSegLength,
-            CuteSort64<BITS_TO_SORT, 2>);
+            segCountInBin,
+            CuteSort32<BITS_TO_SORT, 4>);
     }
 
-    //w1_t128_kv256_cute64_bMerge
+    //w1_t128_kv256_cute32_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt128Le256(
         const uint32_t* segments,
@@ -94,17 +96,17 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortBlock<2, 64, 256, 1, 4, 6, 6, 8, K>(
+        SplitSortBlock<2, 64, 256, 4, 5, 6, 8, false, K>(
             segments,
             binOffsets,
             sort,
             payloads,
             totalSegCount,
             totalSegLength,
-            CuteSort64<BITS_TO_SORT, 2>);
+            CuteSort32<BITS_TO_SORT, 2>);
     }
 
-    //w1_t128_kv512_radix
+    //w1_t128_kv512_cute64_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt256Le512(
         const uint32_t* segments,
@@ -114,16 +116,17 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT, K>(
+        SplitSortBlock<4, 128, 512, 4, 6, 7, 9, false, K>(
             segments,
             binOffsets,
             sort,
             payloads,
             totalSegCount,
-            totalSegLength);
+            totalSegLength,
+            CuteSort64<BITS_TO_SORT, 4>);
     }
 
-    //w1_t128_kv1024_radix
+    //w1_t256_kv1024_cute64_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt512Le1024(
         const uint32_t* segments,
@@ -133,13 +136,14 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortRadix<4, 8, 256, 1024, ROUND_UP_BITS_TO_SORT, K>(
+        SplitSortBlock<4, 128, 1024, 8, 6, 7, 10, false, K>(
             segments,
             binOffsets,
             sort,
             payloads,
             totalSegCount,
-            totalSegLength);
+            totalSegLength,
+            CuteSort64<BITS_TO_SORT, 4>);
     }
 
     //w1_t256_kv2048_radix
@@ -152,7 +156,7 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortRadix<8, 8, 256, 2048, ROUND_UP_BITS_TO_SORT, K>(
+        SplitSortRadix<8, 8, 256, 2048, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -171,7 +175,7 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortRadix<16, 8, 256, 4096, ROUND_UP_BITS_TO_SORT, K>(
+        SplitSortRadix<16, 8, 256, 4096, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
             segments,
             binOffsets,
             sort,
@@ -180,7 +184,7 @@ namespace SplitSort
             totalSegLength);
     }
 
-    //onesweep here :)
+    //global sort here aka onesweep :)
 
     template<uint32_t BITS_TO_SORT, class K>
     __host__ void SplitSortPairs(
@@ -260,13 +264,14 @@ namespace SplitSort
         segsInCurBin = segHist[3] - segHist[2];
         if (segsInCurBin)
         {
-            SplitSort::SortGt64Le128<BITS_TO_SORT><<<segsInCurBin, 64, 0, streams[2]>>>(
+            SplitSort::SortGt64Le128<BITS_TO_SORT><<<(segsInCurBin + 3) / 4, 128, 0, streams[2]>>>(
                 segments,
                 binOffsets + segHist[2],
                 sort,
                 payloads,
                 totalSegCount,
-                totalSegLength);
+                totalSegLength,
+                segsInCurBin);
         }
 
         segsInCurBin = segHist[4] - segHist[3];
@@ -296,7 +301,7 @@ namespace SplitSort
         segsInCurBin = segHist[6] - segHist[5];
         if (segsInCurBin)
         {
-            SplitSort::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, 128, 0, streams[5]>>>(
+            SplitSort::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, 256, 0, streams[5]>>>(
                 segments,
                 binOffsets + segHist[5],
                 sort,

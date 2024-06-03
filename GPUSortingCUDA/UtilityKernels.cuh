@@ -198,6 +198,82 @@ __global__ void InitFixedSegLengthRandomValue(
     }
 }
 
+
+__global__ void InitSegValuesDescendingAndScramble(
+    uint32_t* sort,
+    uint32_t* payloads,
+    uint32_t* segments,
+    uint32_t totalSegCount,
+    uint32_t totalSegLength,
+    uint32_t seed)
+{
+    uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
+
+    for (uint32_t block = blockIdx.x; block < totalSegCount; block += gridDim.x)
+    {
+        const uint32_t segmentStart = segments[block];
+        const uint32_t segmentEnd = block + 1 == totalSegCount ? totalSegLength : segments[block + 1];
+        const uint32_t segLength = segmentEnd - segmentStart;
+        __shared__ uint32_t s_mem[4096];
+        if (segLength <= 4096)
+        {
+            for (uint32_t i = threadIdx.x; i < segLength; i += blockDim.x)
+                s_mem[i] = segLength - i;
+            __syncthreads();
+
+            #pragma unroll
+            for (uint32_t t = 0; t < 2; ++t)
+            {
+                #pragma unroll
+                for (uint32_t i = 1; i < 3; ++i)
+                {
+                    uint32_t part = segLength >> i;
+                    for (uint32_t j = 0; j < i; ++j)
+                    {
+                        for (uint32_t k = threadIdx.x; k < part; k += blockDim.x)
+                        {
+                            z1 = TAUS_STEP_1;
+                            z2 = TAUS_STEP_2;
+                            z3 = TAUS_STEP_3;
+                            z4 = LCG_STEP;
+
+                            uint32_t rand = HYBRID_TAUS;
+                            uint32_t index = k + j * part * 2;
+                            if (rand < 0x80000000 && index < segLength)
+                            {
+                                uint32_t t = s_mem[index];
+                                s_mem[index] = s_mem[index + part];
+                                s_mem[index + part] = t;
+                            }
+                        }
+                    }
+                    __syncthreads();
+                }
+            }
+
+            for (uint32_t i = threadIdx.x; i < segLength; i += blockDim.x)
+            {
+                sort[i + segmentStart] = s_mem[i];
+                payloads[i + segmentStart] = s_mem[i];
+            }
+            __syncthreads();
+        }
+
+        if (segLength > 4096)
+        {
+            //direct device memory here, unnecessary for now as we dont test > 4096
+        }
+    }
+}
+
 //Because seg lengths are fixed, we can skip prefix sum
 //by multiplying the index by the seg length
 __global__ void InitSegLengthsFixed(

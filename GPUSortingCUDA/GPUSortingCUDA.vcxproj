@@ -11,6 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="SegSort\RegSortKernels.cuh" />
     <ClInclude Include="SegSort\SplitSort.cuh" />
     <ClInclude Include="SegSort\SplitSortBinning.cuh" />
     <ClInclude Include="SegSort\SplitSortDispatcher.cuh" />
@@ -115,7 +116,7 @@
       <GenerateRelocatableDeviceCode>false</GenerateRelocatableDeviceCode>
       <DebugInformationFormat>None</DebugInformationFormat>
       <Warning>W0</Warning>
-      <MaxRegCount>0</MaxRegCount>
+      <MaxRegCount>64</MaxRegCount>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

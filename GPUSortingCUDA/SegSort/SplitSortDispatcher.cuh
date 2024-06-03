@@ -144,7 +144,7 @@ public:
             return;
         }
 
-        const uint32_t segCount = 1 << 14;
+        const uint32_t segCount = 1 << 13;
         printf("Beginning Split Sort Test All Fixed Segment Lengths 1 - 4096 \n");
         
         uint32_t testsPassed = 0;
