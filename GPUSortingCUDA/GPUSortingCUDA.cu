@@ -17,7 +17,7 @@
 int main()
 {
     //-----------------GLOBAL SORTS-----------------
-    /*printf("-----------------BEGINNING KEYS TESTS-----------------\n\n");
+    printf("-----------------BEGINNING KEYS TESTS-----------------\n\n");
     OneSweepDispatcher* oneSweep = new OneSweepDispatcher(true, 1 << 28);
     oneSweep->TestAllKeysOnly();
     oneSweep->BatchTimingKeysOnly(1 << 28, 100, 10, ENTROPY_PRESET_1);
@@ -51,17 +51,15 @@ int main()
 
     EmulatedDeadlockingDispatcher* d = new EmulatedDeadlockingDispatcher(1 << 28);
     d->BatchTimingKeysOnly(1 << 28, 100, 10, ENTROPY_PRESET_1);
-    d->~EmulatedDeadlockingDispatcher();*/
+    d->~EmulatedDeadlockingDispatcher();
         
     //-----------------SEGMETED SORT-----------------
-    SplitSortDispatcher<double>* sp = new SplitSortDispatcher<double>(1 << 27, 1 << 22, 1.0);
-    //sp->TestAllFixedSegmentLengths<32>(10);
-    sp->~SplitSortDispatcher();
+    /*SplitSortDispatcher<uint32_t>* sp = new SplitSortDispatcher<uint32_t>(1 << 27, 1 << 22, 1U);
+    sp->TestAllRandomSegmentLengths<32>(50, false);
+    sp->~SplitSortDispatcher();*/
 
     //-----------------SEGMENT VARIANTS-----------------
     SplitSortVariantTester* spv = new SplitSortVariantTester(1 << 27, 1 << 22);
-    spv->BatchTime_w1_t128_kv512_cute64_bMerge(100, 1 << 18, 512);
-
     /*
     //32
     spv->BatchTime_w1_t32_kv32_cute32_bin(100, 1 << 22, 32);

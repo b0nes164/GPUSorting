@@ -996,21 +996,31 @@ __device__ __forceinline__ void SplitSortBins32(
     //If the binCount is 1, and the length of the segment
     //is short, skip cute sort and use a regSort style fallback
     uint32_t index;
+    K val;
     if (binCount == 1 && totalLocalLength <= 16)
-        SingleBinFallback(key, index, totalLocalLength);
-    else
-        CuteSort32Bin<BITS_TO_SORT>(key, index, GetBinInfo32(s_warpBins, binCount), totalLocalLength);
-    
-    K payload;
-    if (getLaneId() < totalLocalLength)
     {
-        sort[index + segmentStart] = key;
-        payload = payloads[getLaneId() + segmentStart];
+        SingleBinFallback(key, index, totalLocalLength);
+        if (getLaneId() < totalLocalLength)
+            val = payloads[index + segmentStart];
+        __syncwarp(0xffffffff);
+        if (getLaneId() < totalLocalLength)
+        {
+            sort[getLaneId() + segmentStart] = key;
+            payloads[getLaneId() + segmentStart] = val;
+        }
     }
-    __syncwarp(0xffffffff);
-
-    if (getLaneId() < totalLocalLength)
-        payloads[index + segmentStart] = payload;
+    else
+    {
+        CuteSort32Bin<BITS_TO_SORT>(key, index, GetBinInfo32(s_warpBins, binCount), totalLocalLength);
+        if (getLaneId() < totalLocalLength)
+            val = payloads[getLaneId() + segmentStart];
+        __syncwarp(0xffffffff);
+        if (getLaneId() < totalLocalLength)
+        {
+            sort[index + segmentStart] = key;
+            payloads[index + segmentStart] = val;
+        }
+    }
 }
 
 __device__ __forceinline__ uint32_t find_kth3(

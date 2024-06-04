@@ -53,7 +53,7 @@ public:
         cudaMalloc(&m_reduction, divRoundUp(k_maxSegments, k_nextFitSize) * sizeof(uint32_t));
         cudaMalloc(&m_segHist, k_segHistSize * sizeof(uint32_t));
         cudaMalloc(&m_index, sizeof(uint32_t));
-        cudaMalloc(&m_totalLength, sizeof(uint32_t));
+        cudaMalloc(&m_totalLength, 3 * sizeof(uint32_t));
         cudaMalloc(&m_errCount, sizeof(uint32_t));
     }
 
@@ -83,7 +83,7 @@ public:
 
         uint32_t segHist[9];
         InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
-        InitSegValuesDescendingAndScramble<<<512,128>>>(m_sort, m_payloads, m_segments, totalSegCount, totalSegCount * segLength, 10);
+        InitRandomSegLengthUniqueValue<<<512,128>>>(m_sort, m_payloads, m_segments, totalSegCount, totalSegCount * segLength, 10);
         //InitFixedSegLengthRandomValue<<<256, 256>>>(m_sort, m_payloads, segLength, totalSegCount, 10);
         DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
         cudaDeviceSynchronize();
@@ -1085,7 +1085,7 @@ public:
             &SplitSortVariants::t1024_kv4096_radix<32>);
     }
 
-    //HACK SORTS
+    //COUNT SORTS
     void BatchTime_w1_t256_kv512_count(
         uint32_t batchCount,
         uint32_t totalSegCount,
@@ -1171,7 +1171,6 @@ public:
     }
 #pragma endregion SortTests
 
-#pragma region BinningTests
     void BatchTimeBinningFixedSegLength(
         uint32_t batchCount,
         uint32_t segLength,
@@ -1206,55 +1205,6 @@ public:
         //TODO add test
         PrintResults(batchCount + 1, segCount, batchCount, totalTime, "segs");
     }
-
-    void BatchTimeBinningRandomSegLength(
-        uint32_t batchCount,
-        uint32_t maxSegLength,
-        uint32_t segCount)
-    {
-        cudaEvent_t start;
-        cudaEvent_t stop;
-        if (!BatchTimeSetup("Binning Random Seg Length", start, stop, segCount, 0))
-            return;
-
-        uint32_t segHist[9];
-        float totalTime = 0.0f;
-        for (uint32_t i = 0; i <= batchCount; ++i)
-        {
-            cudaMemset(m_totalLength, 0, sizeof(uint32_t));
-            cudaDeviceSynchronize();
-
-            InitSegLengthsRandom<<<256,256>>>(
-                m_segments,
-                m_totalLength,
-                ENTROPY_PRESET_1,
-                i + 10,
-                segCount,
-                maxSegLength);
-            cudaDeviceSynchronize();
-
-            uint32_t totalLength[1];
-            cudaMemcpy(&totalLength, m_totalLength, sizeof(uint32_t), cudaMemcpyDeviceToHost);
-            cudaDeviceSynchronize();
-
-            cudaEventRecord(start);
-            DispatchBinning(segCount, totalLength[0], segHist);
-            cudaEventRecord(stop);
-            cudaEventSynchronize(stop);
-
-            float millis;
-            cudaEventElapsedTime(&millis, start, stop);
-            if (i)
-                totalTime += millis;
-
-            if ((i & 15) == 0)
-                printf(". ");
-        }
-
-        //TODO add test
-        PrintResults(batchCount + 1, segCount, batchCount, totalTime, "segs");
-    }
-#pragma endregion BinningTests
 
 private:
     static inline uint32_t divRoundUp(uint32_t x, uint32_t y)
@@ -1382,8 +1332,7 @@ private:
         for (uint32_t i = 0; i <= batchCount; ++i)
         {
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
-            InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
-            InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
+            InitRandomSegLengthUniqueValue<<<512,128>>>(m_sort, m_payloads, m_segments, totalSegCount, totalSegCount * segLength, i + 10);
             //InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
@@ -1444,8 +1393,8 @@ private:
         for (uint32_t i = 0; i <= batchCount; ++i)
         {
             InitSegLengthsFixed<<<256,256>>>(m_segments, totalSegCount, segLength);
-            InitSegValuesDescendingAndScramble <<<512,128>>>(m_sort, m_payloads, m_segments, totalSegCount, totalSegCount * segLength, i + 10);
-            //InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
+            //InitRandomSegLengthUniqueValue<<<512,128>>>(m_sort, m_payloads, m_segments, totalSegCount, totalSegCount * segLength, i + 10);
+            InitFixedSegLengthRandomValue<<<1024,64>>>(m_sort, m_payloads, segLength, totalSegCount, i + 10);
             DispatchBinning(totalSegCount, totalSegCount * segLength, segHist);
             cudaDeviceSynchronize();
             cudaEventRecord(start);

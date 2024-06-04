@@ -116,14 +116,27 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortBlock<4, 128, 512, 4, 6, 7, 9, false, K>(
-            segments,
-            binOffsets,
-            sort,
-            payloads,
-            totalSegCount,
-            totalSegLength,
-            CuteSort64<BITS_TO_SORT, 4>);
+        if constexpr (BITS_TO_SORT > 24)
+        {
+            SplitSortBlock<4, 128, 512, 4, 6, 7, 9, false, K>(
+                segments,
+                binOffsets,
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength,
+                CuteSort64<BITS_TO_SORT, 4>);
+        }
+        else
+        {
+            SplitSortRadix<4, 4, 128, 512, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                segments,
+                binOffsets,
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength);
+        }
     }
 
     //w1_t256_kv1024_cute64_bMerge
@@ -136,14 +149,27 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortBlock<4, 128, 1024, 8, 6, 7, 10, false, K>(
-            segments,
-            binOffsets,
-            sort,
-            payloads,
-            totalSegCount,
-            totalSegLength,
-            CuteSort64<BITS_TO_SORT, 4>);
+        if constexpr (BITS_TO_SORT > 24)
+        {
+            SplitSortBlock<4, 128, 1024, 8, 6, 7, 10, false, K>(
+                segments,
+                binOffsets,
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength,
+                CuteSort64<BITS_TO_SORT, 4>);
+        }
+        else
+        {
+            SplitSortRadix<8, 4, 128, 1024, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                segments,
+                binOffsets,
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength);
+        }
     }
 
     //w1_t256_kv2048_radix

@@ -62,6 +62,10 @@ __global__ void InitRandom(
     uint32_t z2 = ((idx << 2) + 1) * seed;
     uint32_t z3 = ((idx << 2) + 2) * seed;
     uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
 
     for (uint32_t i = idx; i < size; i += blockDim.x * gridDim.x)
     {
@@ -91,6 +95,10 @@ __global__ void InitRandom(
     uint32_t z2 = ((idx << 2) + 1) * seed;
     uint32_t z3 = ((idx << 2) + 2) * seed;
     uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
 
     for (uint32_t i = idx; i < size; i += blockDim.x * gridDim.x)
     {
@@ -138,6 +146,10 @@ __global__ void InitFixedSegLengthRandomValue(
     uint32_t z2 = ((idx << 2) + 1) * seed;
     uint32_t z3 = ((idx << 2) + 2) * seed;
     uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
 
     const uint32_t sCount = totalSegCount;
     const uint32_t sLength = segLength;
@@ -169,6 +181,10 @@ __global__ void InitFixedSegLengthRandomValue(
     uint32_t z2 = ((idx << 2) + 1) * seed;
     uint32_t z3 = ((idx << 2) + 2) * seed;
     uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
 
     const uint32_t sCount = totalSegCount;
     const uint32_t sLength = segLength;
@@ -177,10 +193,6 @@ __global__ void InitFixedSegLengthRandomValue(
         const uint32_t devOffset = k * sLength;
         for (uint32_t i = threadIdx.x; i < sLength; i += blockDim.x)
         {
-            z1 = TAUS_STEP_1;
-            z2 = TAUS_STEP_2;
-            z3 = TAUS_STEP_3;
-            z4 = LCG_STEP;
             const uint32_t t = HYBRID_TAUS;
             sort[i + devOffset] = t;
 
@@ -198,10 +210,46 @@ __global__ void InitFixedSegLengthRandomValue(
     }
 }
 
-
-__global__ void InitSegValuesDescendingAndScramble(
+__global__ void InitRandomSegLengthRandomValue(
     uint32_t* sort,
-    uint32_t* payloads,
+    uint32_t* payload,
+    uint32_t* segments,
+    uint32_t totalSegCount,
+    uint32_t totalSegLength,
+    uint32_t seed)
+{
+    uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+    uint32_t z1 = (idx << 2) * seed;
+    uint32_t z2 = ((idx << 2) + 1) * seed;
+    uint32_t z3 = ((idx << 2) + 2) * seed;
+    uint32_t z4 = ((idx << 2) + 3) * seed;
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
+
+    const uint32_t sCount = totalSegCount;
+    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
+    {
+        const uint32_t segmentStart = segments[k];
+        const uint32_t segmentEnd = k + 1 == totalSegCount ? totalSegLength : segments[k + 1];
+        const uint32_t segLength = segmentEnd - segmentStart;
+        for (uint32_t i = threadIdx.x; i < segLength; i += blockDim.x)
+        {
+            z1 = TAUS_STEP_1;
+            z2 = TAUS_STEP_2;
+            z3 = TAUS_STEP_3;
+            z4 = LCG_STEP;
+            const uint32_t t = HYBRID_TAUS;
+            sort[i + segmentStart] = t;
+            payload[i + segmentStart] = t;
+        }
+    }
+}
+
+__global__ void InitRandomSegLengthUniqueValue(
+    uint32_t* sort,
+    uint32_t* payload,
     uint32_t* segments,
     uint32_t totalSegCount,
     uint32_t totalSegLength,
@@ -262,7 +310,7 @@ __global__ void InitSegValuesDescendingAndScramble(
             for (uint32_t i = threadIdx.x; i < segLength; i += blockDim.x)
             {
                 sort[i + segmentStart] = s_mem[i];
-                payloads[i + segmentStart] = s_mem[i];
+                payload[i + segmentStart] = s_mem[i];
             }
             __syncthreads();
         }
@@ -286,42 +334,68 @@ __global__ void InitSegLengthsFixed(
         segments[i] = i * segLength;
 }
 
+//Initialize segment lengths, with each segment length 
+//limited to maxSegLength, and the total length of segments limited to maxTotalLength
 __global__ void InitSegLengthsRandom(
     uint32_t* segments,
-    uint32_t* totalLength,
-    uint32_t andCount,
+    volatile uint32_t* totalLength,
     uint32_t seed,
-    uint32_t totalSegCount,
-    uint32_t maxLength)
+    uint32_t maxTotalLength,
+    uint32_t maxSegLength)
 {
     uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
-    const uint32_t maxVal = maxLength * 1.75 / totalSegCount; // * 1,75 is a hack
-    uint32_t total = 0;
 
     uint32_t z1 = (idx << 2) * seed;
     uint32_t z2 = ((idx << 2) + 1) * seed;
     uint32_t z3 = ((idx << 2) + 2) * seed;
     uint32_t z4 = ((idx << 2) + 3) * seed;
-
-    for (uint32_t i = idx; i < totalSegCount; i += blockDim.x * gridDim.x)
+    z1 = TAUS_STEP_1;
+    z2 = TAUS_STEP_2;
+    z3 = TAUS_STEP_3;
+    z4 = LCG_STEP;
+    do 
     {
-        uint32_t t = 0xffffffff;
-        for (uint32_t k = 0; k <= andCount; ++k)
-        {
-            z1 = TAUS_STEP_1;
-            z2 = TAUS_STEP_2;
-            z3 = TAUS_STEP_3;
-            z4 = LCG_STEP;
-            t &= HYBRID_TAUS;
-            t %= maxVal;
-        }
-        segments[i] = t;
-        total += t;
-    }
+        z1 = TAUS_STEP_1;
+        z2 = TAUS_STEP_2;
+        z3 = TAUS_STEP_3;
+        z4 = LCG_STEP;
+        uint32_t t = HYBRID_TAUS % maxSegLength + 1;
+        const uint32_t reduce = WarpReduceSum(t);
+        bool validAddition = false;
 
-    const uint32_t reduce = WarpReduceSum(total);
-    if (!getLaneId())
-        atomicAdd((uint32_t*)&totalLength[0], reduce);
+        if (!getLaneId())
+        {
+            uint32_t assumed;
+            uint32_t old = 0xffffffff;
+            do
+            {
+                __threadfence();
+                assumed = totalLength[0];
+                if (assumed + reduce < maxTotalLength)  //ok to add
+                {
+                    old = atomicCAS((uint32_t*)&totalLength[0], assumed, assumed + reduce);
+                    if(assumed == old)
+                        validAddition = true;
+                }
+                else //too much, set the global break flag
+                {
+                    totalLength[2] = 1;
+                    break;
+                }
+
+            } while (assumed != old && totalLength[2] == 0);
+        }
+        __syncwarp(0xffffffff);
+
+        if (__shfl_sync(0xffffffff, validAddition, 0))
+        {
+            uint32_t deviceOffset;
+            if (!getLaneId())
+                deviceOffset = atomicAdd((uint32_t*)&totalLength[1], LANE_COUNT);
+            deviceOffset = __shfl_sync(0xffffffff, deviceOffset, 0);
+            segments[getLaneId() + deviceOffset] = t;
+        }
+    } while (totalLength[2] == 0);
 }
 
 #define VAL_PART_SIZE 4096
@@ -457,6 +531,41 @@ __global__ void ValidateFixLengthSegments(
             //They must also be in sorted order
             if (u1 > u2)
                 atomicAdd((uint32_t*)&errCount[0], 1);
+        }
+    }
+}
+
+__global__ void ValidateRandomLengthSegments(
+    uint32_t* sort,
+    uint32_t* payload,
+    uint32_t* segments,
+    uint32_t* errCount,
+    uint32_t totalSegLength,
+    uint32_t totalSegCount)
+{
+    for (uint32_t k = blockIdx.x; k < totalSegCount; k += gridDim.x)
+    {
+        const uint32_t segmentStart = segments[k];
+        const uint32_t segmentEnd = k + 1 == totalSegCount ? totalSegLength : segments[k + 1];
+        const uint32_t segLength = segmentEnd - segmentStart;
+
+        for (uint32_t i = threadIdx.x + 1; i < segLength; i += blockDim.x)
+        {
+            if (sort[i + segmentStart - 1] > sort[i + segmentStart])
+            {
+                atomicAdd((uint32_t*)&errCount[0], 1);
+                /*printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n",
+                    sort[i + segmentStart - 1], sort[i + segmentStart], k, segLength);*/
+            }
+                
+
+            if (payload[i + segmentStart - 1] > payload[i + segmentStart])
+            {
+                atomicAdd((uint32_t*)&errCount[0], 1);
+                /*printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n",
+                    payload[i + segmentStart - 1], payload[i + segmentStart], k, segLength);*/
+            }
+                
         }
     }
 }
