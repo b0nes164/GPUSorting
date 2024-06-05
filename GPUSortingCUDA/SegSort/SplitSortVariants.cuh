@@ -751,6 +751,70 @@ __device__ __forceinline__ void MultiSplit128Asm(
 }
 
 template<uint32_t BITS_TO_SORT>
+__device__ __forceinline__ void MultiSplit128AsmGt(
+    uint64_t& gtMask00,
+    uint64_t& gtMask01,
+    uint64_t& gtMask10,
+    uint64_t& gtMask11,
+    uint64_t& gtMask20,
+    uint64_t& gtMask21,
+    uint64_t& gtMask30,
+    uint64_t& gtMask31,
+    const uint32_t key0,
+    const uint32_t key1,
+    const uint32_t key2,
+    const uint32_t key3)
+{
+    #pragma unroll
+    for (uint32_t bit = 0; bit < BITS_TO_SORT; ++bit)
+    {
+        uint32_t current_bit = 1 << bit;
+        asm("{\n"
+            "    .reg .pred p0;\n"
+            "    .reg .pred p1;\n"
+            "    .reg .pred p2;\n"
+            "    .reg .pred p3;\n"
+            "    .reg .b32 bal0;\n"
+            "    .reg .b32 bal1;\n"
+            "    .reg .b32 bal2;\n"
+            "    .reg .b64 t;\n"
+            "    and.b32 bal0, %8, %12;\n"
+            "    setp.eq.u32 p0, bal0, 0;\n"
+            "    and.b32 bal1, %9, %12;\n"
+            "    setp.eq.u32 p1, bal1, 0;\n"
+            "    and.b32 bal2, %10, %12;\n"
+            "    setp.eq.u32 p2, bal2, 0;\n"
+            "    and.b32 %12, %11, %12;\n"
+            "    setp.eq.u32 p3, %12, 0;\n"
+            "    vote.ballot.sync.b32 bal0, p0, 0xffffffff;\n"
+            "    vote.ballot.sync.b32 bal1, p1, 0xffffffff;\n"
+            "    vote.ballot.sync.b32 bal2, p2, 0xffffffff;\n"
+            "    vote.ballot.sync.b32 %12, p3, 0xffffffff;\n"
+            "    mov.b64 t, {bal0, bal1};\n"
+            "    @p0 and.b64 %0, %0, t;\n"
+            "    @p1 and.b64 %2, %2, t;\n"
+            "    @p2 and.b64 %4, %4, t;\n"
+            "    @p3 and.b64 %6, %6, t;\n"
+            "    @!p0 or.b64 %0, %0, t;\n"
+            "    @!p1 or.b64 %2, %2, t;\n"
+            "    @!p2 or.b64 %4, %4, t;\n"
+            "    @!p3 or.b64 %6, %6, t;\n"
+            "    mov.b64 t, {bal2, %12};\n"
+            "    @p0 and.b64 %1, %1, t;\n"
+            "    @p1 and.b64 %3, %3, t;\n"
+            "    @p2 and.b64 %5, %5, t;\n"
+            "    @p3 and.b64 %7, %7, t;\n"
+            "    @!p0 or.b64 %1, %1, t;\n"
+            "    @!p1 or.b64 %3, %3, t;\n"
+            "    @!p2 or.b64 %5, %5, t;\n"
+            "    @!p3 or.b64 %7, %7, t;\n"
+            "}\n" : "+l"(gtMask00), "+l"(gtMask01), "+l"(gtMask10), "+l"(gtMask11),
+                    "+l"(gtMask20), "+l"(gtMask21), "+l"(gtMask30), "+l"(gtMask31) :
+                    "r"(key0), "r"(key1), "r"(key2), "r"(key3), "r"(current_bit));
+    }
+}
+
+template<uint32_t BITS_TO_SORT>
 __device__ __forceinline__ void cs128(
     uint32_t& key0,
     uint32_t& key1,
@@ -846,6 +910,72 @@ __device__ __forceinline__ void cs128(
     }
 }
 
+template<uint32_t BITS_TO_SORT>
+__device__ __forceinline__ void cs128Gt(
+    uint32_t& key0,
+    uint32_t& key1,
+    uint32_t& key2,
+    uint32_t& key3,
+    uint2* s_pairs,
+    const uint32_t totalLocalLength,
+    const uint32_t runStart)
+{
+    if (totalLocalLength - runStart > 64)
+    {
+        uint64_t gtMask00 = 0;
+        uint64_t gtMask01 = 0;
+        uint64_t gtMask10 = 0;
+        uint64_t gtMask11 = 0;
+        uint64_t gtMask20 = 0;
+        uint64_t gtMask21 = 0;
+        uint64_t gtMask30 = 0;
+        uint64_t gtMask31 = 0;
+
+        MultiSplit128AsmGt<BITS_TO_SORT>(
+            gtMask00, gtMask01, gtMask10, gtMask11,
+            gtMask20, gtMask21, gtMask30, gtMask31,
+            key0, key1, key2, key3);
+
+        s_pairs[__popcll(gtMask00) + __popcll(gtMask01)] = { key0, getLaneId() + runStart };
+        s_pairs[__popcll(gtMask10) + __popcll(gtMask11)] = { key1, getLaneId() + runStart + 32 };
+
+        if (getLaneId() + runStart + 64 < totalLocalLength)
+            s_pairs[__popcll(gtMask20) + __popcll(gtMask21)] = { key2, getLaneId() + runStart + 64 };
+        else
+            s_pairs[getLaneId() + 64].x = 0xffffffff;
+
+        if (getLaneId() + runStart + 96 < totalLocalLength)
+            s_pairs[__popcll(gtMask30) + __popcll(gtMask31)] = { key3, getLaneId() + runStart + 96 };
+        else
+            s_pairs[getLaneId() + 96].x = 0xffffffff;
+    }
+    else
+    {
+        if (totalLocalLength - runStart > 32)
+        {
+            cs64Gt<BITS_TO_SORT>(
+                key0,
+                key1,
+                s_pairs,
+                totalLocalLength,
+                runStart);
+            s_pairs[getLaneId() + 64].x = 0xffffffff;
+            s_pairs[getLaneId() + 96].x = 0xffffffff;
+        }
+        else
+        {
+            cs32Gt<BITS_TO_SORT>(
+                key0,
+                s_pairs,
+                totalLocalLength,
+                runStart);
+            s_pairs[getLaneId() + 32].x = 0xffffffff;
+            s_pairs[getLaneId() + 64].x = 0xffffffff;
+            s_pairs[getLaneId() + 96].x = 0xffffffff;
+        }
+    }
+}
+
 //Sort 128 keys at a time instead of 32, KEYS_PER_THREAD must be a multiple of 4
 template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
 __device__ __forceinline__ void CuteSort128(
@@ -861,6 +991,35 @@ __device__ __forceinline__ void CuteSort128(
         if (runStart < totalLocalLength)
         {
             cs128<BITS_TO_SORT>(
+                keys[k], keys[k + 1], keys[k + 2], keys[k + 3],
+                &s_pairs[k >> 2 << 7],
+                totalLocalLength,
+                runStart);
+        }
+        else
+        {
+            s_pairs[getLaneId() + k * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 1) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 2) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 3) * LANE_COUNT].x = 0xffffffff;
+        }
+    }
+}
+
+template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
+__device__ __forceinline__ void CuteSort128Gt(
+    uint32_t* keys,
+    uint2* s_pairs,
+    const uint32_t totalLocalLength,
+    const uint32_t warpOffset)
+{
+    #pragma unroll
+    for (uint32_t k = 0; k < KEYS_PER_THREAD; k += 4)
+    {
+        const uint32_t runStart = k * LANE_COUNT + warpOffset;
+        if (runStart < totalLocalLength)
+        {
+            cs128Gt<BITS_TO_SORT>(
                 keys[k], keys[k + 1], keys[k + 2], keys[k + 3],
                 &s_pairs[k >> 2 << 7],
                 totalLocalLength,
