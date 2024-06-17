@@ -1,10 +1,10 @@
 /******************************************************************************
-*  GPUSorting
+ * GPUSorting
  * SplitSort
- * Experimental SegSort that does not use cooperative groups
+ * Experimental Hybrid Radix-Merge based SegmentedSort
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 5/16/2024
+ * Copyright Thomas Smith 6/17/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/

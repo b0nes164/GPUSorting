@@ -1,4 +1,4 @@
-/*
+/******************************************************************************
 * BBUtils
 * Utilities and functions used from bb_segsort
 * 
@@ -22,7 +22,7 @@
 *
 *   You should have received a copy of the GNU General Public License
 *
-*/
+ ******************************************************************************/
 #pragma once
 #include <stdio.h>
 #include <stdint.h>
