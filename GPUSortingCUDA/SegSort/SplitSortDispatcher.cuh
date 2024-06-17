@@ -18,7 +18,6 @@
 #include "SplitSort.cuh"
 #include "../UtilityKernels.cuh"
 
-
 template<class K>
 class SplitSortDispatcher
 {
@@ -172,6 +171,76 @@ public:
             printf("SPLIT SORT ALL FIXED SEG LENGTHS TESTS PASSED \n");
         else
             printf("SPLIT SORT FIXED SEG LENGTH TESTS FAILED. \n");
+    }
+
+    void BatchTimeRandomSegmentLength(
+        uint32_t batchCount,
+        uint32_t size,
+        uint32_t maxSegLength)
+    {
+        if (size > k_maxSize || size > k_maxSegments )
+        {
+            printf("Error, allocate more memory :) \n");
+            return;
+        }
+
+        printf("Beginning Split Sort Pairs Random Seg Length Batch Timing: \n");
+        cudaEvent_t start;
+        cudaEvent_t stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+
+        float totalTime = 0.0f;
+        uint64_t totalSize = 0;
+        for (uint32_t i = 0; i <= batchCount; ++i)
+        {
+            //Init
+                uint32_t segInfo[3];
+                cudaMemset(m_totalLength, 0, 3 * sizeof(uint32_t));
+                cudaDeviceSynchronize();
+                InitSegLengthsRandom<<<4096,64>>>(m_segments, m_totalLength, i + 10, size, maxSegLength);
+                cudaDeviceSynchronize();
+                cudaMemcpy(&segInfo, m_totalLength, 3 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+                cudaDeviceSynchronize();
+                void* d_temp_storage = NULL;
+                size_t  temp_storage_bytes = 0;
+                cub::DeviceScan::ExclusiveSum(
+                    d_temp_storage, temp_storage_bytes,
+                    m_segments, m_segments, segInfo[1]);
+                cudaMalloc(&d_temp_storage, temp_storage_bytes);
+                cub::DeviceScan::ExclusiveSum(
+                    d_temp_storage, temp_storage_bytes,
+                    m_segments, m_segments, segInfo[1]);
+                cudaDeviceSynchronize();
+                cudaFree(d_temp_storage);
+                InitRandomSegLengthRandomValue<<<4096,64>>>(m_sort, m_payloads, m_segments, segInfo[1], segInfo[0], i + 10);
+                //InitRandomSegLengthUniqueValue<<<4096,64>>>(m_sort, m_payloads, m_segments, segInfo[1], segInfo[0], i + 10);
+
+                cudaDeviceSynchronize();
+                cudaEventRecord(start);
+                DispatchSplitSortPairs<32>(segInfo[1], segInfo[0]);
+                cudaEventRecord(stop);
+                cudaEventSynchronize(stop);
+                cudaDeviceSynchronize();
+
+                float millis;
+                cudaEventElapsedTime(&millis, start, stop);
+                if (i)
+                {
+                    totalTime += millis;
+                    totalSize += segInfo[0];
+                }
+                    
+                if ((i & 15) == 0)
+                    printf(". ");
+        }
+
+        totalTime /= 1000.0f;
+        double tSize = totalSize;
+        tSize /= (double)batchCount;
+        printf("\n");
+        printf("Total time elapsed: %f\n", totalTime);
+        printf("Estimated speed at %u 32-bit elements: %E pairs/sec\n\n", (uint32_t)tSize, tSize / totalTime * batchCount);
     }
 
     //Test random segment lengths, with maximums at powers of two between 1 and 4096

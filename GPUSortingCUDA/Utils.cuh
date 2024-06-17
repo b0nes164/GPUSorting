@@ -40,6 +40,13 @@ __device__ __forceinline__ unsigned getLaneMaskGt()
     return mask;
 }
 
+__device__ __forceinline__ unsigned getLaneMaskGe()
+{
+    unsigned mask;
+    asm("mov.u32 %0, %%lanemask_ge;" : "=r"(mask));
+    return mask;
+}
+
 //Warp scans
 __device__ __forceinline__ uint32_t InclusiveWarpScan(uint32_t val)
 {

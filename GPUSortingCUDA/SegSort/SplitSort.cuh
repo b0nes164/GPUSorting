@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "../Utils.cuh"
+#include "Utils.cuh"
 #include "SplitSortVariants.cuh"
 #include "SplitSortBinning.cuh"
 
@@ -64,7 +64,7 @@ namespace SplitSort
             CuteSort32<BITS_TO_SORT, 2>);
     }
 
-    //w4_t32_kv128_cute32_wMerge
+    //w2_t32_kv128_cute64_wMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt64Le128(
         const uint32_t* segments,
@@ -75,33 +75,19 @@ namespace SplitSort
         const uint32_t totalSegLength,
         const uint32_t segCountInBin)
     {
-        if constexpr (BITS_TO_SORT > 16)
-        {
-            SplitSortWarp<4, 128, 512, 4, 5, 7, K>(
-                segments,
-                binOffsets,
-                sort,
-                payloads,
-                totalSegCount,
-                totalSegLength,
-                segCountInBin,
-                CuteSort32<BITS_TO_SORT, 4>);
-        }
-        else
-        {
-            SplitSortWarp<4, 128, 512, 4, 6, 7, K>(
-                segments,
-                binOffsets,
-                sort,
-                payloads,
-                totalSegCount,
-                totalSegLength,
-                segCountInBin,
-                CuteSort64<BITS_TO_SORT, 4>);
-        }
+        SplitSortWarp<4, 128, 256, 2, 6, 7, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            segCountInBin,
+            CuteSort64<BITS_TO_SORT, 4>);
     }
 
-    //w1_t128_kv256_cute32_bMerge
+    //w1_t64_kv256_cute64_bMerge
+    //w1_t64_kv256_cute128_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt128Le256(
         const uint32_t* segments,
@@ -111,16 +97,16 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        if constexpr (BITS_TO_SORT > 16)
+        if constexpr (BITS_TO_SORT > 24)
         {
-            SplitSortBlock<4, 128, 256, 2, 5, 7, 8, false, K>(
+            SplitSortBlock<4, 128, 256, 2, 6, 7, 8, false, K>(
                 segments,
                 binOffsets,
                 sort,
                 payloads,
                 totalSegCount,
                 totalSegLength,
-                CuteSort32<BITS_TO_SORT, 4>);
+                CuteSort64<BITS_TO_SORT, 4>);
         }
         else
         {
@@ -135,7 +121,7 @@ namespace SplitSort
         }
     }
 
-    //w1_t128_kv512_cute64_bMerge
+    //w1_t128_kv512_cute128_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt256Le512(
         const uint32_t* segments,
@@ -145,31 +131,17 @@ namespace SplitSort
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        if constexpr (BITS_TO_SORT > 16)
-        {
-            SplitSortBlock<4, 128, 512, 4, 6, 7, 9, false, K>(
-                segments,
-                binOffsets,
-                sort,
-                payloads,
-                totalSegCount,
-                totalSegLength,
-                CuteSort64<BITS_TO_SORT, 4>);
-        }
-        else //Radix at 24 maybe?
-        {
-           SplitSortBlock<4, 128, 512, 4, 7, 7, 9, false, K>(
-                segments,
-                binOffsets,
-                sort,
-                payloads,
-                totalSegCount,
-                totalSegLength,
-                CuteSort128<BITS_TO_SORT, 4>);
-        }
+        SplitSortBlock<4, 128, 512, 4, 7, 7, 9, false, K>(
+        segments,
+        binOffsets,
+        sort,
+        payloads,
+        totalSegCount,
+        totalSegLength,
+        CuteSort128<BITS_TO_SORT, 4>);
     }
 
-    //w1_t256_kv1024_cute64_bMerge
+    //w1_t256_kv1024_cute128_bMerge
     template<uint32_t BITS_TO_SORT, class K>
     __global__ void SortGt512Le1024(
         const uint32_t* segments,
@@ -181,18 +153,18 @@ namespace SplitSort
     {
         if constexpr (BITS_TO_SORT > 24)
         {
-            SplitSortBlock<4, 128, 1024, 8, 6, 7, 10, false, K>(
+            SplitSortBlock<4, 128, 1024, 8, 7, 7, 10, false, K>(
                 segments,
                 binOffsets,
                 sort,
                 payloads,
                 totalSegCount,
                 totalSegLength,
-                CuteSort64<BITS_TO_SORT, 4>);
+                CuteSort128<BITS_TO_SORT, 4>);
         }
         else
         {
-            SplitSortRadix<8, 4, 128, 1024, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+            SplitSortRadix<4, 8, 256, 1024, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
                 segments,
                 binOffsets,
                 sort,
@@ -259,9 +231,9 @@ namespace SplitSort
         const uint32_t k_nextFitSize = 2048;
 
         uint32_t segHist[k_segHistSize];
-        cudaStream_t streams[k_segHistSize - 2];
-        for (uint32_t i = 0; i < k_segHistSize - 2; ++i)
-            cudaStreamCreate(&streams[i]);
+        //cudaStream_t stream[9 - 1];
+        //for(uint32_t i = 0; i < k_segHistSize - 1; ++i)
+        //    cudaStreamCreate(&stream[i]);
 
         const uint32_t binPackPartitions = (totalSegCount + k_nextFitSize - 1) / k_nextFitSize;
         cudaMemset(tempIndex, 0, sizeof(uint32_t));
@@ -307,7 +279,7 @@ namespace SplitSort
         segsInCurBin = segHist[2] - segHist[1];
         if (segsInCurBin)
         {
-            SplitSort::SortGt32Le64<BITS_TO_SORT><<<(segsInCurBin + 3) / 4, 128, 0, streams[0]>>>(
+            SplitSort::SortGt32Le64<BITS_TO_SORT><<<(segsInCurBin + 3) / 4, 128>>>(
                 segments,
                 binOffsets + segHist[1],
                 sort,
@@ -320,7 +292,7 @@ namespace SplitSort
         segsInCurBin = segHist[3] - segHist[2];
         if (segsInCurBin)
         {
-            SplitSort::SortGt64Le128<BITS_TO_SORT><<<(segsInCurBin + 3) / 4, 128, 0, streams[1]>>>(
+            SplitSort::SortGt64Le128<BITS_TO_SORT><<<(segsInCurBin + 1) / 2, 64>>>(
                 segments,
                 binOffsets + segHist[2],
                 sort,
@@ -333,7 +305,7 @@ namespace SplitSort
         segsInCurBin = segHist[4] - segHist[3];
         if (segsInCurBin)
         {
-            SplitSort::SortGt128Le256<BITS_TO_SORT><<<segsInCurBin, 64, 0, streams[2]>>>(
+            SplitSort::SortGt128Le256<BITS_TO_SORT><<<segsInCurBin, 64>>>(
                 segments,
                 binOffsets + segHist[3],
                 sort,
@@ -345,7 +317,7 @@ namespace SplitSort
         segsInCurBin = segHist[5] - segHist[4];
         if (segsInCurBin)
         {
-            SplitSort::SortGt256Le512<BITS_TO_SORT><<<segsInCurBin, 128, 0, streams[3]>>>(
+            SplitSort::SortGt256Le512<BITS_TO_SORT><<<segsInCurBin, 128>>>(
                 segments,
                 binOffsets + segHist[4],
                 sort,
@@ -357,7 +329,8 @@ namespace SplitSort
         segsInCurBin = segHist[6] - segHist[5];
         if (segsInCurBin)
         {
-            SplitSort::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, 256, 0, streams[4]>>>(
+            constexpr uint32_t threads = BITS_TO_SORT > 24 ? 256 : 128;
+            SplitSort::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, threads>>>(
                 segments,
                 binOffsets + segHist[5],
                 sort,
@@ -369,7 +342,7 @@ namespace SplitSort
         segsInCurBin = segHist[7] - segHist[6];
         if (segsInCurBin)
         {
-            SplitSort::SortGt1024Le2048<BITS_TO_SORT><<<segsInCurBin, 256, 0, streams[5]>>>(
+            SplitSort::SortGt1024Le2048<BITS_TO_SORT><<<segsInCurBin, 256>>>(
                 segments,
                 binOffsets + segHist[6],
                 sort,
@@ -381,7 +354,7 @@ namespace SplitSort
         segsInCurBin = segHist[8] - segHist[7];
         if (segsInCurBin)
         {
-            SplitSort::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512, 0, streams[6]>>>(
+            SplitSort::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512>>>(
                 segments,
                 binOffsets + segHist[7],
                 sort,
@@ -390,7 +363,7 @@ namespace SplitSort
                 totalSegLength);
         }
 
-        for (uint32_t i = 0; i < k_segHistSize - 2; ++i)
-            cudaStreamDestroy(streams[i]);
+        //for(uint32_t i = 0; i < k_segHistSize - 1; ++i)
+        //    cudaStreamDestroy(stream[i]);
     }
 }

@@ -11,7 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SegSort\RegSortKernels.cuh" />
+    <ClInclude Include="SegSort\BBUtils.cuh" />
     <ClInclude Include="SegSort\SplitSort.cuh" />
     <ClInclude Include="SegSort\SplitSortBinning.cuh" />
     <ClInclude Include="SegSort\SplitSortDispatcher.cuh" />
@@ -120,6 +120,9 @@
       <DebugInformationFormat>None</DebugInformationFormat>
       <Warning>W0</Warning>
       <MaxRegCount>64</MaxRegCount>
+      <AdditionalCompilerOptions>
+      </AdditionalCompilerOptions>
+      <AdditionalOptions>--expt-relaxed-constexpr %(AdditionalOptions)</AdditionalOptions>
     </CudaCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

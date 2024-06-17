@@ -1,18 +1,15 @@
 /******************************************************************************
-*  GPUSorting
+ * GPUSorting
  * SplitSort
- * Experimental SegSort that does not use cooperative groups
+ * Experimental Hybrid Radix-Merge based SegmentedSort
  *
  * SPDX-License-Identifier: MIT
  * Copyright Thomas Smith 5/16/2024
  * https://github.com/b0nes164/GPUSorting
  *
- * Using "CuteSort" technique by
+ * Improving on "CuteSort" technique originally suggested by
  *          Dondragmer
  *          https://gist.github.com/dondragmer/0c0b3eed0f7c30f7391deb11121a5aa1
- *
- * Using Optimization suggested by Ilya Grebnov
- *      https://github.com/NVIDIA/cccl/pull/1372
  * 
  ******************************************************************************/
 #pragma once
@@ -21,7 +18,7 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include "../Utils.cuh"
-#include "RegSortKernels.cuh"
+#include "BBUtils.cuh"
 
 struct BinInfo32
 {
@@ -65,7 +62,6 @@ __device__ __forceinline__ void MultiSplit32(
     }
 }
 
-//asm 35% faster
 template<uint32_t BITS_TO_SORT>
 __device__ __forceinline__ void MultiSplit32Asm(
     uint32_t& eqMask,
@@ -90,10 +86,10 @@ __device__ __forceinline__ void MultiSplit32Asm(
     }
 }
 
-//Hack version if keys are unique
+//Best
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void MultiSplit32AsmGt(
-    uint32_t& gtMask,
+__device__ __forceinline__ void MultiSplit32AsmGe(
+    uint32_t& geMask,
     const uint32_t key)
 {
     #pragma unroll
@@ -103,11 +99,20 @@ __device__ __forceinline__ void MultiSplit32AsmGt(
         asm("{\n"
             "    .reg .pred p;\n"
             "    and.b32 %2, %1, %2;\n"
-            "    setp.eq.u32 p, %2, 0;\n" 
+            "    setp.eq.u32 p, %2, 0;\n"
             "    vote.ballot.sync.b32 %2, p, 0xffffffff;\n"
             "    @p and.b32 %0, %0, %2;\n"
             "    @!p or.b32 %0, %0, %2;\n"
-            "}\n" : "+r"(gtMask) : "r"(key), "r"(current_bit));
+            "}\n" : "+r"(geMask) : "r"(key), "r"(current_bit));
+
+        /*bool b;
+        current_bit = key & current_bit;
+        b = current_bit == 0;
+        current_bit = __ballot_sync(0xffffffff, b);
+        if (b)
+            geMask &= current_bit;
+        else
+            geMask |= current_bit;*/
     }
 }
 
@@ -131,18 +136,18 @@ __device__ __forceinline__ void CuteSort32Bin(
 }
 
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void CuteSort32BinGt(
+__device__ __forceinline__ void CuteSort32BinGe(
     const uint32_t key,
     uint32_t& index,
     const BinInfo32 binInfo,
     const uint32_t totalLocalLength)
 {
-    uint32_t gtMask = 0;
-    MultiSplit32AsmGt<BITS_TO_SORT>(gtMask, key);
+    uint32_t geMask = getLaneMaskLt();
+    MultiSplit32AsmGe<BITS_TO_SORT>(geMask, key);
 
     if (getLaneId() < totalLocalLength)
     {
-        index = __popc(gtMask & binInfo.binMask);
+        index = __popc(geMask & binInfo.binMask);
         index += binInfo.binOffset;
     }
 }
@@ -173,7 +178,7 @@ __device__ __forceinline__ void cs32(
     else
     {
         uint32_t index = getLaneId();
-        RegSortKernels::RegSortFallback(key, index, totalLocalLength - runStart);
+        BBUtils::RegSortFallback(key, index, totalLocalLength - runStart);
         if (getLaneId() + runStart < totalLocalLength)
             s_pairs[getLaneId()] = { key, index + runStart };
         else
@@ -182,7 +187,7 @@ __device__ __forceinline__ void cs32(
 }
 
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void cs32Gt(
+__device__ __forceinline__ void cs32Ge(
     uint32_t& key,
     uint2* s_pairs,
     const uint32_t totalLocalLength,
@@ -190,18 +195,18 @@ __device__ __forceinline__ void cs32Gt(
 {
     if (totalLocalLength - runStart > 16)
     {
-        uint32_t gtMask = 0;
-        MultiSplit32AsmGt<BITS_TO_SORT>(gtMask, key);
+        uint32_t geMask = getLaneMaskLt();
+        MultiSplit32AsmGe<BITS_TO_SORT>(geMask, key);
 
         if (getLaneId() + runStart < totalLocalLength)
-            s_pairs[__popc(gtMask)] = { key, getLaneId() + runStart };
+            s_pairs[__popc(geMask)] = { key, getLaneId() + runStart };
         else
             s_pairs[getLaneId()].x = 0xffffffff;
     }
     else
     {
         uint32_t index = getLaneId();
-        RegSortKernels::RegSortFallback(key, index, totalLocalLength - runStart);
+        BBUtils::RegSortFallback(key, index, totalLocalLength - runStart);
         if (getLaneId() + runStart < totalLocalLength)
             s_pairs[getLaneId()] = { key, index + runStart };
         else
@@ -222,33 +227,7 @@ __device__ __forceinline__ void CuteSort32(
         const uint32_t runStart = k * LANE_COUNT + warpOffset;
         if (runStart < totalLocalLength)
         {
-            cs32<BITS_TO_SORT>(
-                keys[k],
-                &s_pairs[k * LANE_COUNT],
-                totalLocalLength,
-                runStart);
-        }
-        else
-        {
-            s_pairs[getLaneId() + k * LANE_COUNT].x = 0xffffffff;
-        }
-    }
-}
-
-template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
-__device__ __forceinline__ void CuteSort32Gt(
-    uint32_t* keys,
-    uint2* s_pairs,
-    const uint32_t totalLocalLength,
-    const uint32_t warpOffset)
-{
-    #pragma unroll
-    for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
-    {
-        const uint32_t runStart = k * LANE_COUNT + warpOffset;
-        if (runStart < totalLocalLength)
-        {
-            cs32Gt<BITS_TO_SORT>(
+            cs32Ge<BITS_TO_SORT>(
                 keys[k],
                 &s_pairs[k * LANE_COUNT],
                 totalLocalLength,
@@ -350,9 +329,9 @@ __device__ __forceinline__ void MultiSplit64Asm(
 
 //Hack for unique keys only
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void MultiSplit64AsmGt(
-    uint64_t& gtMask0,
-    uint64_t& gtMask1,
+__device__ __forceinline__ void MultiSplit64AsmGe(
+    uint64_t& geMask0,
+    uint64_t& geMask1,
     const uint32_t key0,
     const uint32_t key1)
 {
@@ -376,7 +355,7 @@ __device__ __forceinline__ void MultiSplit64AsmGt(
             "    @p1 and.b64 %1, %1, t;\n"
             "    @!p0 or.b64 %0, %0, t;\n"
             "    @!p1 or.b64 %1, %1, t;\n"
-            "}\n" : "+l"(gtMask0), "+l"(gtMask1) : "r"(key0), "r"(key1), "r"(current_bit));
+            "}\n" : "+l"(geMask0), "+l"(geMask1) : "r"(key0), "r"(key1), "r"(current_bit));
     }
 }
 
@@ -451,7 +430,7 @@ __device__ __forceinline__ void cs64(
 }
 
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void cs64Gt(
+__device__ __forceinline__ void cs64Ge(
     uint32_t& key0,
     uint32_t& key1,
     uint2* s_pairs,
@@ -460,20 +439,20 @@ __device__ __forceinline__ void cs64Gt(
 {
     if (totalLocalLength - runStart > 32)
     {
-        uint64_t gtMask0 = 0;
-        uint64_t gtMask1 = 0;
-        MultiSplit64AsmGt<BITS_TO_SORT>(gtMask0, gtMask1, key0, key1);
+        uint64_t geMask0 = getLaneMaskLt();
+        uint64_t geMask1 = (uint64_t)getLaneMaskLt() << 32 | 0xffffffff;
+        MultiSplit64AsmGe<BITS_TO_SORT>(geMask0, geMask1, key0, key1);
 
-        s_pairs[__popcll(gtMask0)] = { key0, getLaneId() + runStart };
+        s_pairs[__popcll(geMask0)] = { key0, getLaneId() + runStart };
 
         if (getLaneId() + runStart + LANE_COUNT < totalLocalLength)
-            s_pairs[__popcll(gtMask1)] = { key1, getLaneId() + runStart + LANE_COUNT };
+            s_pairs[__popcll(geMask1)] = { key1, getLaneId() + runStart + LANE_COUNT };
         else
             s_pairs[getLaneId() + LANE_COUNT].x = 0xffffffff;
     }
     else
     {
-        cs32Gt<BITS_TO_SORT>(key0, s_pairs, totalLocalLength, runStart);
+        cs32Ge<BITS_TO_SORT>(key0, s_pairs, totalLocalLength, runStart);
         s_pairs[getLaneId() + LANE_COUNT].x = 0xffffffff;
     }
 }
@@ -491,35 +470,7 @@ __device__ __forceinline__ void CuteSort64(
         const uint32_t runStart = k * LANE_COUNT + warpOffset;
         if (runStart < totalLocalLength)
         {
-            cs64<BITS_TO_SORT>(
-                keys[k],
-                keys[k + 1],
-                &s_pairs[k >> 1 << 6],
-                totalLocalLength,
-                runStart);
-        }
-        else
-        {
-            s_pairs[getLaneId() + k * LANE_COUNT].x = 0xffffffff;
-            s_pairs[getLaneId() + (k + 1) * LANE_COUNT].x = 0xffffffff;
-        }
-    }
-}
-
-template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
-__device__ __forceinline__ void CuteSort64Gt(
-    uint32_t* keys,
-    uint2* s_pairs,
-    const uint32_t totalLocalLength,
-    const uint32_t warpOffset)
-{
-    #pragma unroll
-    for (uint32_t k = 0; k < KEYS_PER_THREAD; k += 2)
-    {
-        const uint32_t runStart = k * LANE_COUNT + warpOffset;
-        if (runStart < totalLocalLength)
-        {
-            cs64Gt<BITS_TO_SORT>(
+            cs64Ge<BITS_TO_SORT>(
                 keys[k],
                 keys[k + 1],
                 &s_pairs[k >> 1 << 6],
@@ -536,24 +487,11 @@ __device__ __forceinline__ void CuteSort64Gt(
 
 template<uint32_t BITS_TO_SORT>
 __device__ __forceinline__ void MultiSplit128(
-    uint32_t& eqMask00,
-    uint64_t& eqMask10,
-    uint64_t& eqMask20,
-    uint32_t& eqMask21,
-    uint64_t& eqMask30,
-    uint64_t& eqMask31,
-    uint64_t& gtMask00,
-    uint64_t& gtMask01,
-    uint64_t& gtMask10,
-    uint64_t& gtMask11,
-    uint64_t& gtMask20,
-    uint64_t& gtMask21,
-    uint64_t& gtMask30,
-    uint64_t& gtMask31,
-    const uint32_t key0,
-    const uint32_t key1,
-    const uint32_t key2,
-    const uint32_t key3)
+    uint32_t& eqMask00, uint64_t& eqMask10, uint64_t& eqMask20, uint32_t& eqMask21,
+    uint64_t& eqMask30, uint64_t& eqMask31, uint64_t& gtMask00, uint64_t& gtMask01,
+    uint64_t& gtMask10, uint64_t& gtMask11, uint64_t& gtMask20, uint64_t& gtMask21,
+    uint64_t& gtMask30,  uint64_t& gtMask31,
+    const uint32_t key0, const uint32_t key1, const uint32_t key2, const uint32_t key3)
 {
     uint32_t ballot[4];
     bool setBit[4];
@@ -631,24 +569,11 @@ __device__ __forceinline__ void MultiSplit128(
 //Asm 20% faster
 template<uint32_t BITS_TO_SORT>
 __device__ __forceinline__ void MultiSplit128Asm(
-    uint32_t& eqMask00,
-    uint64_t& eqMask10,
-    uint64_t& eqMask20,
-    uint32_t& eqMask21,
-    uint64_t& eqMask30,
-    uint64_t& eqMask31,
-    uint64_t& gtMask00,
-    uint64_t& gtMask01,
-    uint64_t& gtMask10,
-    uint64_t& gtMask11,
-    uint64_t& gtMask20,
-    uint64_t& gtMask21,
-    uint64_t& gtMask30,
-    uint64_t& gtMask31,
-    const uint32_t key0,
-    const uint32_t key1,
-    const uint32_t key2,
-    const uint32_t key3)
+    uint32_t& eqMask00, uint64_t& eqMask10, uint64_t& eqMask20, uint32_t& eqMask21,
+    uint64_t& eqMask30, uint64_t& eqMask31, uint64_t& gtMask00, uint64_t& gtMask01,
+    uint64_t& gtMask10, uint64_t& gtMask11, uint64_t& gtMask20, uint64_t& gtMask21,
+    uint64_t& gtMask30, uint64_t& gtMask31,
+    const uint32_t key0, const uint32_t key1, const uint32_t key2, const uint32_t key3)
 {
     #pragma unroll
     for (uint32_t bit = 0; bit < BITS_TO_SORT; ++bit)
@@ -751,19 +676,10 @@ __device__ __forceinline__ void MultiSplit128Asm(
 }
 
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void MultiSplit128AsmGt(
-    uint64_t& gtMask00,
-    uint64_t& gtMask01,
-    uint64_t& gtMask10,
-    uint64_t& gtMask11,
-    uint64_t& gtMask20,
-    uint64_t& gtMask21,
-    uint64_t& gtMask30,
-    uint64_t& gtMask31,
-    const uint32_t key0,
-    const uint32_t key1,
-    const uint32_t key2,
-    const uint32_t key3)
+__device__ __forceinline__ void MultiSplit128AsmGe(
+    uint64_t& geMask00, uint64_t& geMask01, uint64_t& geMask10, uint64_t& geMask11,
+    uint64_t& geMask20, uint64_t& geMask21, uint64_t& geMask30, uint64_t& geMask31,
+    const uint32_t key0, const uint32_t key1, const uint32_t key2, const uint32_t key3)
 {
     #pragma unroll
     for (uint32_t bit = 0; bit < BITS_TO_SORT; ++bit)
@@ -808,18 +724,15 @@ __device__ __forceinline__ void MultiSplit128AsmGt(
             "    @!p1 or.b64 %3, %3, t;\n"
             "    @!p2 or.b64 %5, %5, t;\n"
             "    @!p3 or.b64 %7, %7, t;\n"
-            "}\n" : "+l"(gtMask00), "+l"(gtMask01), "+l"(gtMask10), "+l"(gtMask11),
-                    "+l"(gtMask20), "+l"(gtMask21), "+l"(gtMask30), "+l"(gtMask31) :
+            "}\n" : "+l"(geMask00), "+l"(geMask01), "+l"(geMask10), "+l"(geMask11),
+                    "+l"(geMask20), "+l"(geMask21), "+l"(geMask30), "+l"(geMask31) :
                     "r"(key0), "r"(key1), "r"(key2), "r"(key3), "r"(current_bit));
     }
 }
 
 template<uint32_t BITS_TO_SORT>
 __device__ __forceinline__ void cs128(
-    uint32_t& key0,
-    uint32_t& key1,
-    uint32_t& key2,
-    uint32_t& key3,
+    uint32_t& key0, uint32_t& key1, uint32_t& key2, uint32_t& key3,
     uint2* s_pairs,
     const uint32_t totalLocalLength,
     const uint32_t runStart)
@@ -911,41 +824,39 @@ __device__ __forceinline__ void cs128(
 }
 
 template<uint32_t BITS_TO_SORT>
-__device__ __forceinline__ void cs128Gt(
-    uint32_t& key0,
-    uint32_t& key1,
-    uint32_t& key2,
-    uint32_t& key3,
+__device__ __forceinline__ void cs128Ge(
+    uint32_t& key0, uint32_t& key1, uint32_t& key2, uint32_t& key3,
     uint2* s_pairs,
     const uint32_t totalLocalLength,
     const uint32_t runStart)
 {
     if (totalLocalLength - runStart > 64)
     {
-        uint64_t gtMask00 = 0;
-        uint64_t gtMask01 = 0;
-        uint64_t gtMask10 = 0;
-        uint64_t gtMask11 = 0;
-        uint64_t gtMask20 = 0;
-        uint64_t gtMask21 = 0;
-        uint64_t gtMask30 = 0;
-        uint64_t gtMask31 = 0;
+        const uint64_t upperMask = (uint64_t)getLaneMaskLt() << 32ULL | 0xffffffff;
+        uint64_t geMask00 = getLaneMaskLt();
+        uint64_t geMask01 = 0;
+        uint64_t geMask10 = upperMask;
+        uint64_t geMask11 = 0;
+        uint64_t geMask20 = ~0ULL;
+        uint64_t geMask21 = getLaneMaskLt();
+        uint64_t geMask30 = ~0ULL;
+        uint64_t geMask31 = upperMask;
 
-        MultiSplit128AsmGt<BITS_TO_SORT>(
-            gtMask00, gtMask01, gtMask10, gtMask11,
-            gtMask20, gtMask21, gtMask30, gtMask31,
+        MultiSplit128AsmGe<BITS_TO_SORT>(
+            geMask00, geMask01, geMask10, geMask11,
+            geMask20, geMask21, geMask30, geMask31,
             key0, key1, key2, key3);
 
-        s_pairs[__popcll(gtMask00) + __popcll(gtMask01)] = { key0, getLaneId() + runStart };
-        s_pairs[__popcll(gtMask10) + __popcll(gtMask11)] = { key1, getLaneId() + runStart + 32 };
+        s_pairs[__popcll(geMask00) + __popcll(geMask01)] = { key0, getLaneId() + runStart };
+        s_pairs[__popcll(geMask10) + __popcll(geMask11)] = { key1, getLaneId() + runStart + 32 };
 
         if (getLaneId() + runStart + 64 < totalLocalLength)
-            s_pairs[__popcll(gtMask20) + __popcll(gtMask21)] = { key2, getLaneId() + runStart + 64 };
+            s_pairs[__popcll(geMask20) + __popcll(geMask21)] = { key2, getLaneId() + runStart + 64 };
         else
             s_pairs[getLaneId() + 64].x = 0xffffffff;
 
         if (getLaneId() + runStart + 96 < totalLocalLength)
-            s_pairs[__popcll(gtMask30) + __popcll(gtMask31)] = { key3, getLaneId() + runStart + 96 };
+            s_pairs[__popcll(geMask30) + __popcll(geMask31)] = { key3, getLaneId() + runStart + 96 };
         else
             s_pairs[getLaneId() + 96].x = 0xffffffff;
     }
@@ -953,7 +864,7 @@ __device__ __forceinline__ void cs128Gt(
     {
         if (totalLocalLength - runStart > 32)
         {
-            cs64Gt<BITS_TO_SORT>(
+            cs64Ge<BITS_TO_SORT>(
                 key0,
                 key1,
                 s_pairs,
@@ -964,7 +875,7 @@ __device__ __forceinline__ void cs128Gt(
         }
         else
         {
-            cs32Gt<BITS_TO_SORT>(
+            cs32Ge<BITS_TO_SORT>(
                 key0,
                 s_pairs,
                 totalLocalLength,
@@ -990,7 +901,7 @@ __device__ __forceinline__ void CuteSort128(
         const uint32_t runStart = k * LANE_COUNT + warpOffset;
         if (runStart < totalLocalLength)
         {
-            cs128<BITS_TO_SORT>(
+            cs128Ge<BITS_TO_SORT>(
                 keys[k], keys[k + 1], keys[k + 2], keys[k + 3],
                 &s_pairs[k >> 2 << 7],
                 totalLocalLength,
@@ -1006,22 +917,237 @@ __device__ __forceinline__ void CuteSort128(
     }
 }
 
+template<uint32_t BITS_TO_SORT>
+__device__ __forceinline__ void MultiSplit256Ge(
+    uint64_t& geMask00, uint64_t& geMask10, uint64_t& geMask20, uint64_t& geMask30,
+    uint64_t& geMask40, uint64_t& geMask50, uint64_t& geMask60, uint64_t& geMask70,
+    uint64_t& geMask01, uint64_t& geMask11, uint64_t& geMask21, uint64_t& geMask31,
+    uint64_t& geMask41, uint64_t& geMask51, uint64_t& geMask61, uint64_t& geMask71,
+    const uint32_t key0, const uint32_t key1, const uint32_t key2, const uint32_t key3,
+    const uint32_t key4, const uint32_t key5, const uint32_t key6, const uint32_t key7)
+{
+    #pragma unroll
+    for (uint32_t bit = 0; bit < BITS_TO_SORT; ++bit)
+    {
+        uint32_t current_bit = 1 << bit;
+        uint32_t bal0;
+        uint32_t bal1;
+        uint32_t bal2;
+        bool p0;
+        bool p1;
+        bool p2;
+        bool p3;
+        bool p4;
+        bool p5;
+        bool p6;
+        bool p7;
+
+        bal0 = key4 & current_bit;
+        p4 = bal0 == 0;
+        bal0 = key5 & current_bit;
+        p5 = bal0 == 0;
+        bal0 = key6 & current_bit;
+        p6 = bal0 == 0;
+        bal0 = key7 & current_bit;
+        p7 = bal0 == 0;
+
+        bal0 = key0 & current_bit;
+        p0 = bal0 == 0;
+        bal1 = key1 & current_bit;
+        p1 = bal1 == 0;
+        bal2 = key2 & current_bit;
+        p2 = bal2 == 0;
+        current_bit &= key3;
+        p3 = current_bit == 0;
+
+        bal0 = __ballot_sync(0xffffffff, p0);
+        bal1 = __ballot_sync(0xffffffff, p1);
+        bal2 = __ballot_sync(0xffffffff, p2);
+        current_bit = __ballot_sync(0xffffffff, p3);
+
+        uint64_t t;
+        asm("mov.b64 %0, {%1, %2};" : "=l"(t) : "r"(bal0), "r"(bal1));
+        if (p0) geMask00 &= t; else geMask00 |= t;
+        if (p1) geMask10 &= t; else geMask10 |= t;
+        if (p2) geMask20 &= t; else geMask20 |= t;
+        if (p3) geMask30 &= t; else geMask30 |= t;
+        if (p4) geMask40 &= t; else geMask40 |= t;
+        if (p5) geMask50 &= t; else geMask50 |= t;
+        if (p6) geMask60 &= t; else geMask60 |= t;
+        if (p7) geMask70 &= t; else geMask70 |= t;
+
+        asm("mov.b64 %0, {%1, %2};" : "=l"(t) : "r"(bal2), "r"(current_bit));
+        if (p0) geMask01 &= t; else geMask01 |= t;
+        if (p1) geMask11 &= t; else geMask11 |= t;
+        if (p2) geMask21 &= t; else geMask21 |= t;
+        if (p3) geMask31 &= t; else geMask31 |= t;
+        if (p4) geMask41 &= t; else geMask41 |= t;
+        if (p5) geMask51 &= t; else geMask51 |= t;
+        if (p6) geMask61 &= t; else geMask61 |= t;
+        if (p7) geMask71 &= t; else geMask71 |= t;
+    }
+}
+
+template<uint32_t BITS_TO_SORT>
+__device__ __forceinline__ void cs256Ge(
+    uint32_t& key0, uint32_t& key1, uint32_t& key2, uint32_t& key3,
+    uint32_t& key4, uint32_t& key5, uint32_t& key6, uint32_t& key7,
+    uint2* s_pairs,
+    const uint32_t totalLocalLength,
+    const uint32_t runStart)
+{
+    if (totalLocalLength - runStart > 128)
+    {
+        uint32_t indexes[8];
+        const uint64_t upperMask = (uint64_t)getLaneMaskLt() << 32ULL | 0xffffffff;
+        
+        uint64_t geMask00 = getLaneMaskLt();
+        uint64_t geMask10 = upperMask;
+        uint64_t geMask20 = ~0ULL;
+        uint64_t geMask30 = ~0ULL;
+        uint64_t geMask40 = ~0ULL;
+        uint64_t geMask50 = ~0ULL;
+        uint64_t geMask60 = ~0ULL;
+        uint64_t geMask70 = ~0ULL;
+
+        uint64_t geMask01 = 0;
+        uint64_t geMask11 = 0;
+        uint64_t geMask21 = getLaneMaskLt();
+        uint64_t geMask31 = upperMask;
+        uint64_t geMask41 = ~0ULL;
+        uint64_t geMask51 = ~0ULL;
+        uint64_t geMask61 = ~0ULL;
+        uint64_t geMask71 = ~0ULL;
+
+        MultiSplit256Ge<BITS_TO_SORT>(
+            geMask00, geMask10, geMask20, geMask30,
+            geMask40, geMask50, geMask60, geMask70,
+            geMask01, geMask11, geMask21, geMask31,
+            geMask41, geMask51, geMask61, geMask71,
+            key0, key1, key2, key3,
+            key4, key5, key6, key7);
+
+        indexes[0] = __popcll(geMask00) + __popcll(geMask01);
+        indexes[1] = __popcll(geMask10) + __popcll(geMask11);
+        indexes[2] = __popcll(geMask20) + __popcll(geMask21);
+        indexes[3] = __popcll(geMask30) + __popcll(geMask31);
+        indexes[4] = __popcll(geMask40) + __popcll(geMask41);
+        indexes[5] = __popcll(geMask50) + __popcll(geMask51);
+        indexes[6] = __popcll(geMask60) + __popcll(geMask61);
+        indexes[7] = __popcll(geMask70) + __popcll(geMask71);
+
+        geMask00 = 0;
+        geMask10 = 0;
+        geMask20 = 0;
+        geMask30 = 0;
+        geMask40 = getLaneMaskLt();
+        geMask50 = upperMask;
+        geMask60 = ~0ULL;
+        geMask70 = ~0ULL;
+
+        geMask01 = 0;
+        geMask11 = 0;
+        geMask21 = 0;
+        geMask31 = 0;
+        geMask41 = 0;
+        geMask51 = 0;
+        geMask61 = getLaneMaskLt();
+        geMask71 = upperMask;
+
+        MultiSplit256Ge<BITS_TO_SORT>(
+            geMask40, geMask50, geMask60, geMask70,     //Note the shuffled order
+            geMask00, geMask10, geMask20, geMask30,
+            geMask41, geMask51, geMask61, geMask71,
+            geMask01, geMask11, geMask21, geMask31,
+            key4, key5, key6, key7,
+            key0, key1, key2, key3);
+
+        indexes[0] += __popcll(geMask00) + __popcll(geMask01);
+        indexes[1] += __popcll(geMask10) + __popcll(geMask11);
+        indexes[2] += __popcll(geMask20) + __popcll(geMask21);
+        indexes[3] += __popcll(geMask30) + __popcll(geMask31);
+        indexes[4] += __popcll(geMask40) + __popcll(geMask41);
+        indexes[5] += __popcll(geMask50) + __popcll(geMask51);
+        indexes[6] += __popcll(geMask60) + __popcll(geMask61);
+        indexes[7] += __popcll(geMask70) + __popcll(geMask71);
+
+        s_pairs[indexes[0]] = { key0, getLaneId() + runStart };
+        s_pairs[indexes[1]] = { key1, getLaneId() + runStart + 32 };
+        s_pairs[indexes[2]] = { key2, getLaneId() + runStart + 64 };
+        s_pairs[indexes[3]] = { key3, getLaneId() + runStart + 96 };
+        s_pairs[indexes[4]] = { key4, getLaneId() + runStart + 128 };
+        s_pairs[indexes[5]] = { key5, getLaneId() + runStart + 160 };
+        s_pairs[indexes[6]] = { key6, getLaneId() + runStart + 192 };
+        s_pairs[indexes[7]] = { key7, getLaneId() + runStart + 224 };
+    }
+    else
+    {
+        if (totalLocalLength - runStart > 64)
+        {
+            cs128Ge<BITS_TO_SORT>(
+                key0,
+                key1,
+                key2,
+                key3,
+                s_pairs,
+                totalLocalLength,
+                runStart);
+            s_pairs[getLaneId() + 128].x = 0xffffffff;
+            s_pairs[getLaneId() + 160].x = 0xffffffff;
+            s_pairs[getLaneId() + 192].x = 0xffffffff;
+            s_pairs[getLaneId() + 224].x = 0xffffffff;
+        }
+        else if (totalLocalLength - runStart > 32)
+        {
+            cs64Ge<BITS_TO_SORT>(
+                key0,
+                key1,
+                s_pairs,
+                totalLocalLength,
+                runStart);
+            s_pairs[getLaneId() + 64].x = 0xffffffff;
+            s_pairs[getLaneId() + 96].x = 0xffffffff;
+            s_pairs[getLaneId() + 128].x = 0xffffffff;
+            s_pairs[getLaneId() + 160].x = 0xffffffff;
+            s_pairs[getLaneId() + 192].x = 0xffffffff;
+            s_pairs[getLaneId() + 224].x = 0xffffffff;
+        }
+        else
+        {
+            cs32Ge<BITS_TO_SORT>(
+                key0,
+                s_pairs,
+                totalLocalLength,
+                runStart);
+            s_pairs[getLaneId() + 32].x = 0xffffffff;
+            s_pairs[getLaneId() + 64].x = 0xffffffff;
+            s_pairs[getLaneId() + 96].x = 0xffffffff;
+            s_pairs[getLaneId() + 128].x = 0xffffffff;
+            s_pairs[getLaneId() + 160].x = 0xffffffff;
+            s_pairs[getLaneId() + 192].x = 0xffffffff;
+            s_pairs[getLaneId() + 224].x = 0xffffffff;
+        }
+    }
+}
+
+//redundant work is way too slow
 template<uint32_t BITS_TO_SORT, uint32_t KEYS_PER_THREAD>
-__device__ __forceinline__ void CuteSort128Gt(
+__device__ __forceinline__ void CuteSort256(
     uint32_t* keys,
     uint2* s_pairs,
     const uint32_t totalLocalLength,
     const uint32_t warpOffset)
 {
     #pragma unroll
-    for (uint32_t k = 0; k < KEYS_PER_THREAD; k += 4)
+    for (uint32_t k = 0; k < KEYS_PER_THREAD; k += 8)
     {
         const uint32_t runStart = k * LANE_COUNT + warpOffset;
         if (runStart < totalLocalLength)
         {
-            cs128Gt<BITS_TO_SORT>(
+            cs256Ge<BITS_TO_SORT>(
                 keys[k], keys[k + 1], keys[k + 2], keys[k + 3],
-                &s_pairs[k >> 2 << 7],
+                keys[k + 4], keys[k + 5], keys[k + 6], keys[k + 7],
+                &s_pairs[k >> 3 << 8],
                 totalLocalLength,
                 runStart);
         }
@@ -1031,6 +1157,10 @@ __device__ __forceinline__ void CuteSort128Gt(
             s_pairs[getLaneId() + (k + 1) * LANE_COUNT].x = 0xffffffff;
             s_pairs[getLaneId() + (k + 2) * LANE_COUNT].x = 0xffffffff;
             s_pairs[getLaneId() + (k + 3) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 4) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 5) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 6) * LANE_COUNT].x = 0xffffffff;
+            s_pairs[getLaneId() + (k + 7) * LANE_COUNT].x = 0xffffffff;
         }
     }
 }
@@ -1051,48 +1181,11 @@ __device__ __forceinline__ void LoadBins(
     __syncwarp(0xffffffff);
 }
 
-//Binary search for the segment in which this lane belongs to
-__device__ __forceinline__ uint2 BinarySearch(
-    const uint32_t* s_warpBins,
-    const int32_t binCount,
-    const uint32_t targetIndex)
-{
-    const uint32_t start = s_warpBins[0];
-    if (binCount > 1)
-    {
-        const uint32_t t = start + targetIndex;
-        int32_t l = 0;
-        int32_t h = binCount;
-
-        while (l < h)
-        {
-            const int32_t m = l + (h - l) / 2;
-            if (m >= binCount)  //Unnecessary?
-                break;
-                
-            const uint32_t lr = s_warpBins[m];
-            const uint32_t rr = s_warpBins[m + 1];
-            if (lr <= t && t < rr)
-                return { lr - start, rr - start };
-            else if (t < lr)
-                h = m;
-            else
-                l = m + 1;
-        }
-
-        return { 0, 0 };
-    }
-    else
-    {
-        return { 0, s_warpBins[1] - start };
-    }
-}
-
 __device__ __forceinline__ BinInfo32 GetBinInfo32(
     const uint32_t* s_warpBins,
     const uint32_t binCount)
 {
-    const uint2 interval = BinarySearch(s_warpBins, (int32_t)binCount, getLaneId());
+    const uint2 interval = BBUtils::BinarySearch(s_warpBins, (int32_t)binCount, getLaneId());
     const uint32_t binMask = (((1ULL << interval.y) - 1) >> interval.x << interval.x);
     return BinInfo32{ binMask, interval.x };
 }
@@ -1102,7 +1195,7 @@ __device__ __forceinline__ BinInfo64 GetBinInfo64(
     const uint32_t binCount,
     const uint32_t targetIndex)
 {
-    const uint2 interval = BinarySearch(s_warpBins, (int32_t)binCount, targetIndex);
+    const uint2 interval = BBUtils::BinarySearch(s_warpBins, (int32_t)binCount, targetIndex);
     const uint64_t binMask = (((1ULL << interval.y) - 1) >> interval.x << interval.x);
     return BinInfo64{ binMask, interval.x };
 }
@@ -1113,7 +1206,7 @@ __device__ __forceinline__ void SingleBinFallback(
     const uint32_t totalLocalLength)
 {
     index = getLaneId();
-    RegSortKernels::RegSortFallback(key, index, totalLocalLength);
+    BBUtils::RegSortFallback(key, index, totalLocalLength);
 }
 
 // Only a single warp participates in sorting a run of keys
@@ -1170,7 +1263,7 @@ __device__ __forceinline__ void SplitSortBins32(
     }
     else
     {
-        CuteSort32Bin<BITS_TO_SORT>(key, index, GetBinInfo32(s_warpBins, binCount), totalLocalLength);
+        CuteSort32BinGe<BITS_TO_SORT>(key, index, GetBinInfo32(s_warpBins, binCount), totalLocalLength);
         if (getLaneId() < totalLocalLength)
             val = payloads[getLaneId() + segmentStart];
         __syncwarp(0xffffffff);
@@ -1180,26 +1273,6 @@ __device__ __forceinline__ void SplitSortBins32(
             payloads[index + segmentStart] = val;
         }
     }
-}
-
-__device__ __forceinline__ uint32_t find_kth3(
-    const uint2* a,
-    const uint2* b,
-    const int length,
-    const int diag)
-{
-    int begin = max(0, diag - length);
-    int end = min(diag, length);
-
-    while (begin < end) {
-        int mid = (begin + end) >> 1;
-        uint32_t aKey = a[mid].x;
-        uint32_t bKey = b[diag - 1 - mid].x;
-        bool pred = aKey <= bKey;
-        if (pred) begin = mid + 1;
-        else end = mid;
-    }
-    return begin;
 }
 
 __device__ __forceinline__ void MergeGather(
@@ -1214,7 +1287,7 @@ __device__ __forceinline__ void MergeGather(
     {
         const uint2 t0 = startA < mergeLength ? source[startA] : uint2{ 0xffffffff, 0xffffffff };
         const uint2 t1 = startB < (mergeLength << 1) ? source[startB] : uint2{ 0xffffffff, 0xffffffff };
-        bool pred = startB >= (mergeLength << 1) || (startA < mergeLength&& t0.x <= t1.x);
+        bool pred = startB >= (mergeLength << 1) || (startA < mergeLength && t0.x <= t1.x);
         
         if (pred)
         {
@@ -1248,7 +1321,7 @@ __device__ __forceinline__ void Merge(
     const uint32_t mergeLength)
 {
     const uint32_t tStart = (mergeId << 1) * mergeLength / mergeThreads;
-    const uint32_t startA = find_kth3(
+    const uint32_t startA = BBUtils::find_kth3(
         s_pairs,
         &s_pairs[mergeLength],
         mergeLength,
@@ -1447,8 +1520,8 @@ __device__ __forceinline__ void MultiLevelMergeBlock(
                 mergeId,
                 mergeThreads,
                 mergeLength);
-            __syncthreads();
         }
+        __syncthreads();
 
         if (m < END_LOG - 1 || SHOULD_SCATTER_FINAL)
         {
@@ -2094,14 +2167,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t32_kv128_cute128_wMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t32_kv128_cute128_wMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortWarp<4, 128, 128 * WARPS, WARPS, 7, 7, K>(
             segments,
@@ -2141,14 +2214,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t64_kv128_cute64_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t64_kv128_cute64_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 128, 2, 6, 6, 7, false, K>(
             segments,
@@ -2236,6 +2309,30 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
+        __global__ void t32_kv256_cute256_wMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            K* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
+    {
+        SplitSortWarp<8, 256, WARPS * 256, WARPS, 8, 8, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            segCountInBin,
+            CuteSort256<BITS_TO_SORT, 8>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t64_kv256_cute32_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
@@ -2282,14 +2379,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t64_kv256_cute128_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t64_kv256_cute128_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 256, 2, 7, 7, 8, false, K>(
             segments,
@@ -2305,14 +2402,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t128_kv256_cute32_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t128_kv256_cute32_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 256, 4, 5, 6, 8, false, K>(
             segments,
@@ -2328,14 +2425,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t128_kv256_cute64_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t128_kv256_cute64_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 256, 4, 6, 6, 8, false, K>(
             segments,
@@ -2351,14 +2448,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t256_kv256_cute32_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t256_kv256_cute32_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<1, 32, 256, 8, 5, 5, 8, false, K>(
             segments,
@@ -2374,14 +2471,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t64_kv512_cute32_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t64_kv512_cute32_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<8, 256, 512, 2, 5, 8, 9, false, K>(
             segments,
@@ -2397,14 +2494,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t128_kv512_cute32_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t128_kv512_cute32_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<4, 128, 512, 4, 5, 7, 9, false, K>(
             segments,
@@ -2420,14 +2517,14 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t256_kv512_cute32_bMerge(
-            const uint32_t* segments,
-            const uint32_t* binOffsets,
-            uint32_t* sort,
-            K* payloads,
-            const uint32_t totalSegCount,
-            const uint32_t totalSegLength,
-            const uint32_t segCountInBin)
+    __global__ void t256_kv512_cute32_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
     {
         SplitSortBlock<2, 64, 512, 8, 5, 6, 9, false, K>(
             segments,
@@ -2512,6 +2609,52 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
+    __global__ void t64_kv512_cute128_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
+    {
+        SplitSortBlock<8, 256, 512, 2, 7, 8, 9, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort128<BITS_TO_SORT, 8>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
+    __global__ void t128_kv512_cute128_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
+    {
+        SplitSortBlock<4, 128, 512, 4, 7, 7, 9, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort128<BITS_TO_SORT, 4>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
     __global__ void t128_kv1024_cute64_bMerge(
         const uint32_t* segments,
         const uint32_t* binOffsets,
@@ -2558,7 +2701,76 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t512_kv2048_cute64_bMerge(
+    __global__ void t128_kv1024_cute128_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
+    {
+        SplitSortBlock<8, 256, 1024, 4, 7, 8, 10, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort128<BITS_TO_SORT, 8>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
+    __global__ void t256_kv1024_cute128_bMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        const uint32_t segCountInBin)
+    {
+        SplitSortBlock<4, 128, 1024, 8, 7, 7, 10, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort128<BITS_TO_SORT, 4>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
+        __global__ void t128_kv1024_cute256_bMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            K* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
+    {
+        SplitSortBlock<8, 256, 1024, 4, 8, 8, 10, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort256<BITS_TO_SORT, 8>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
+    __global__ void t512_kv2048_cute64_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
@@ -2581,7 +2793,7 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t512_kv2048_cute128_bMerge(
+    __global__ void t512_kv2048_cute128_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
@@ -2604,7 +2816,7 @@ namespace SplitSortVariants
         uint32_t WARPS,
         uint32_t BITS_TO_SORT,
         class K>
-        __global__ void t1024_kv2048_cute64_bMerge(
+    __global__ void t1024_kv2048_cute64_bMerge(
             const uint32_t* segments,
             const uint32_t* binOffsets,
             uint32_t* sort,
@@ -2621,6 +2833,29 @@ namespace SplitSortVariants
             totalSegCount,
             totalSegLength,
             CuteSort64<BITS_TO_SORT, 2>);
+    }
+
+    template<
+        uint32_t WARPS,
+        uint32_t BITS_TO_SORT,
+        class K>
+        __global__ void t512_kv4096_cute256_bMerge(
+            const uint32_t* segments,
+            const uint32_t* binOffsets,
+            uint32_t* sort,
+            K* payloads,
+            const uint32_t totalSegCount,
+            const uint32_t totalSegLength,
+            const uint32_t segCountInBin)
+    {
+        SplitSortBlock<8, 256, 4096, 16, 8, 8, 12, false, K>(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            CuteSort256<BITS_TO_SORT, 8>);
     }
 
     //RADIX SORTS
