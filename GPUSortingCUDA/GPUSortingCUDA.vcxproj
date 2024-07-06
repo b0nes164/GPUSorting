@@ -119,7 +119,7 @@
       <GenerateRelocatableDeviceCode>false</GenerateRelocatableDeviceCode>
       <DebugInformationFormat>None</DebugInformationFormat>
       <Warning>W0</Warning>
-      <MaxRegCount>64</MaxRegCount>
+      <MaxRegCount>0</MaxRegCount>
       <AdditionalCompilerOptions>
       </AdditionalCompilerOptions>
       <AdditionalOptions>--expt-relaxed-constexpr %(AdditionalOptions)</AdditionalOptions>

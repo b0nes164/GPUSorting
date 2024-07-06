@@ -1228,6 +1228,67 @@ public:
             &SplitSortVariants::t1024_kv4096_radix<32>);
     }
 
+    //Fine grain radix
+    void BatchTime_w1_t128_kv1024_radixFine(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 4;
+        const uint32_t kvProcessed = 1024;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 4 warps per warp group, 1024 kv, radix fine grain",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t128_kv1024_radixFine<32>);
+    }
+
+    void BatchTime_w1_t256_kv2048_radixFine(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 8;
+        const uint32_t kvProcessed = 2048;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 8 warps per warp group, 2048 kv, radix fine grain",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t256_kv2048_radixFine<32>);
+    }
+
+    void BatchTime_w1_t512_kv4096_radixFine(
+        uint32_t batchCount,
+        uint32_t totalSegCount,
+        uint32_t segLength)
+    {
+        const uint32_t warpGroups = 1;
+        const uint32_t warpsPerWarpGroup = 16;
+        const uint32_t kvProcessed = 4096;
+
+        BatchTimeSortFixedSegmentLength(
+            "1 warp groups, 16 warps per warp group, 4096 kv, radix fine",
+            batchCount,
+            totalSegCount,
+            segLength,
+            warpGroups,
+            getDispatchThreads(warpGroups, warpsPerWarpGroup),
+            getSegHistIndex(kvProcessed),
+            &SplitSortVariants::t512_kv4096_radixFine<32>);
+    }
+
     //COUNT SORTS
     void BatchTime_w1_t256_kv512_count(
         uint32_t batchCount,

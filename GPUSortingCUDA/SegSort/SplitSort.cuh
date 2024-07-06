@@ -212,7 +212,113 @@ namespace SplitSort
             totalSegLength);
     }
 
-    //global sort here aka onesweep :)
+    //TODO
+    template<uint32_t BITS_TO_SORT, class K>
+    __global__ void SortGt4096Le6144(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        K* payloads,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        __shared__ uint32_t s_mem[6144 * 2];
+        uint32_t totalLocalLength;
+        GetSegmentInfoRadixFine(
+            segments,
+            binOffsets,
+            sort,
+            payloads,
+            totalSegCount,
+            totalSegLength,
+            totalLocalLength);
+
+        if (totalLocalLength <= 4608)
+        {
+            SplitSortRadixFine<16, 9, 288, 4608, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[6144], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 4608 && totalLocalLength <= 5120)
+        {
+            SplitSortRadixFine<16, 10, 320, 5120, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[6144], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 5120 && totalLocalLength <= 5632)
+        {
+            SplitSortRadixFine<16, 11, 352, 5632, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[6144], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 5632 && totalLocalLength <= 6144)
+        {
+            SplitSortRadixFine<16, 12, 384, 6144, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[6144], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+        
+        //Kern too long, have to split
+
+        /*
+        if (totalLocalLength > 6144 && totalLocalLength <= 6656)
+        {
+            SplitSortRadixFine<16, 13, 416, 6656, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[8192], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 6656 && totalLocalLength <= 7168)
+        {
+            SplitSortRadixFine<16, 14, 448, 7168, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[8192], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 7168 && totalLocalLength <= 7680)
+        {
+            SplitSortRadixFine<16, 15, 480, 7680, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[8192], //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 7680)
+        {
+            SplitSortRadixFine<16, 16, 512, 8192, ROUND_UP_BITS_TO_SORT, 256, 255, 8, K>(
+                s_mem,
+                &s_mem[8192],  //RADIX * WARPS or PART_SIZE
+                sort,
+                payloads,
+                totalLocalLength);
+        }
+        */
+    }
+
+    //FixSort
 
     template<uint32_t BITS_TO_SORT, class K>
     __host__ void SplitSortPairs(
@@ -357,6 +463,28 @@ namespace SplitSort
             SplitSort::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512>>>(
                 segments,
                 binOffsets + segHist[7],
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength);
+        }
+
+        segsInCurBin = totalSegCount - segHist[8];
+        if (segsInCurBin)
+        {
+            /*dim3 grids(512, 1, 1);
+            cudaFuncSetAttribute(SortGt4096Le8192<BITS_TO_SORT, K>, cudaFuncAttributeMaxDynamicSharedMemorySize, 65536);
+            SplitSort::SortGt4096Le8192<BITS_TO_SORT, K><<<segsInCurBin, grids, 65536, 0>>>(
+                segments,
+                binOffsets + segHist[8],
+                sort,
+                payloads,
+                totalSegCount,
+                totalSegLength);*/
+
+            SplitSort::SortGt4096Le6144<BITS_TO_SORT, K><<<segsInCurBin, 512>>>(
+                segments,
+                binOffsets + segHist[8],
                 sort,
                 payloads,
                 totalSegCount,
