@@ -28,37 +28,42 @@
 #include <stdint.h>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "SplitSortUtils.cuh"
 
-#define CMP_SWP(t1,_a,_b,t2,_c,_d) if(_a>_b)  {t1 _t=_a;_a=_b;_b=_t; t2 _s=_c;_c=_d;_d=_s;}
-#define EQL_SWP(t1,_a,_b,t2,_c,_d) if(_a!=_b) {t1 _t=_a;_a=_b;_b=_t; t2 _s=_c;_c=_d;_d=_s;}
-#define     SWP(t1,_a,_b,t2,_c,_d)            {t1 _t=_a;_a=_b;_b=_t; t2 _s=_c;_c=_d;_d=_s;}
+#define CMP_SWP(_a,_b,_c,_d) if(_a>_b) {K _t=_a;_a=_b;_b=_t; V _s=_c;_c=_d;_d=_s;}
+#define EQL_SWP(_a,_b,_c,_d) if(_a!=_b) {K _t=_a;_a=_b;_b=_t; V _s=_c;_c=_d;_d=_s;}
 
-namespace BBUtils
+namespace SplitSortInternal
 {
-    template<class K>
-    __device__ __forceinline__ void exch_intxn(K& k0, uint32_t& v0, int mask, const int bit) {
+    template<class K, class V>
+    __device__ __forceinline__ void exch_intxn(K& k0, V& v0, int mask, const int bit)
+    {
         K ex_k0, ex_k1;
-        uint32_t ex_v0, ex_v1;
+        V ex_v0, ex_v1;
         ex_k0 = k0;
         ex_k1 = __shfl_xor_sync(0xffffffff, k0, mask);
         ex_v0 = v0;
         ex_v1 = __shfl_xor_sync(0xffffffff, v0, mask);
-        CMP_SWP(K, ex_k0, ex_k1, int, ex_v0, ex_v1);
-        if (bit) EQL_SWP(K, ex_k0, ex_k1, int, ex_v0, ex_v1);
+        CMP_SWP(ex_k0, ex_k1, ex_v0, ex_v1);
+        if (bit)
+            EQL_SWP(ex_k0, ex_k1, ex_v0, ex_v1);
         k0 = ex_k0;
         v0 = ex_v0;
     }
 
-    template<class K>
-    __device__ inline void exch_paral(K& k0, uint32_t& v0, int mask, const int bit) {
+    //Exactly the same as exch_paral?
+    template<class K, class V>
+    __device__ inline void exch_paral(K& k0, V& v0, int mask, const int bit) 
+    {
         K ex_k0, ex_k1;
-        uint32_t ex_v0, ex_v1;
+        V ex_v0, ex_v1;
         ex_k0 = k0;
         ex_k1 = __shfl_xor_sync(0xffffffff, k0, mask);
         ex_v0 = v0;
         ex_v1 = __shfl_xor_sync(0xffffffff, v0, mask);
-        CMP_SWP(K, ex_k0, ex_k1, int, ex_v0, ex_v1);
-        if (bit) EQL_SWP(K, ex_k0, ex_k1, int, ex_v0, ex_v1);
+        CMP_SWP(ex_k0, ex_k1, ex_v0, ex_v1);
+        if (bit)
+            EQL_SWP(ex_k0, ex_k1, ex_v0, ex_v1);
         k0 = ex_k0;
         v0 = ex_v0;
     }
@@ -179,7 +184,6 @@ namespace BBUtils
                 else
                     l = m + 1;
             }
-
             return { 0, 0 };
         }
         else
@@ -207,4 +211,7 @@ namespace BBUtils
         }
         return begin;
     }
-}
+}; //Semi colon stop intellisense breaking?
+
+#undef EQL_SWP
+#undef CMP_SWP

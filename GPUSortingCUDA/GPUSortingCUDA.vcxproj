@@ -11,12 +11,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SegSort\BBUtils.cuh" />
-    <ClInclude Include="SegSort\SplitSort.cuh" />
-    <ClInclude Include="SegSort\SplitSortBinning.cuh" />
-    <ClInclude Include="SegSort\SplitSortDispatcher.cuh" />
-    <ClInclude Include="SegSort\SplitSortVariants.cuh" />
-    <ClInclude Include="SegSort\SplitSortVariantTester.cuh" />
+    <ClInclude Include="SegSort\SplitSortExample.cuh" />
+    <ClInclude Include="SegSort\SplitSortTests.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSort.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSortBBUtils.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSortBinning.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSortLarge.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSortUtils.cuh" />
+    <ClInclude Include="SegSort\SplitSort\SplitSortVariants.cuh" />
     <ClInclude Include="Sort\CubDispatcher.cuh" />
     <ClInclude Include="Sort\DeviceRadixSort.cuh" />
     <ClInclude Include="Sort\DeviceRadixSortDispatcher.cuh" />
@@ -28,7 +30,6 @@
     <ClInclude Include="Utils.cuh" />
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="SegSort\SplitSortBinning.cu" />
     <CudaCompile Include="Sort\DeviceRadixSort.cu" />
     <CudaCompile Include="Sort\EmulatedDeadlocking.cu" />
     <CudaCompile Include="GPUSortingCUDA.cu" />
@@ -67,9 +68,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>$(IncludePath)</IncludePath>
-  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>

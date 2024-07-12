@@ -541,7 +541,8 @@ __global__ void ValidateRandomLengthSegments(
     uint32_t* segments,
     uint32_t* errCount,
     uint32_t totalSegLength,
-    uint32_t totalSegCount)
+    uint32_t totalSegCount,
+    const bool verbose)
 {
     for (uint32_t k = blockIdx.x; k < totalSegCount; k += gridDim.x)
     {
@@ -554,19 +555,200 @@ __global__ void ValidateRandomLengthSegments(
             if (sort[i + segmentStart - 1] > sort[i + segmentStart])
             {
                 atomicAdd((uint32_t*)&errCount[0], 1);
-                /*printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n",
-                    sort[i + segmentStart - 1], sort[i + segmentStart], k, segLength);*/
+                if (verbose)
+                {
+                    printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n",
+                        sort[i + segmentStart - 1], sort[i + segmentStart], k, segLength);
+                    //printf("SegStart %u SegEnd %u \n", segmentStart, segmentEnd);
+                }
             }
                 
-
             if (payload[i + segmentStart - 1] > payload[i + segmentStart])
             {
                 atomicAdd((uint32_t*)&errCount[0], 1);
-                /*printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n",
-                    payload[i + segmentStart - 1], payload[i + segmentStart], k, segLength);*/
+                if (verbose)
+                {
+                    printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n",
+                        payload[i + segmentStart - 1], payload[i + segmentStart], k, segLength);
+                }
             }
-                
         }
+    }
+}
+
+//Is the packing good?
+//Are the segments in the right bins?
+__global__ void ValidateBinningRandomSegLengths(
+    uint32_t* segments,
+    uint32_t* binOffsets,
+    uint32_t* segHist,
+    uint32_t* packedSegCounts,
+    uint32_t* errCount,
+    const uint32_t totalSegCount,
+    const uint32_t totalSegLength,
+    const uint32_t totalBinCount,
+    bool verbose)
+{
+    for (uint32_t i = threadIdx.x + blockDim.x * blockIdx.x; i < totalBinCount; i += blockDim.x * gridDim.x)
+    {
+        const uint32_t binOffset = binOffsets[i];
+        //If in the first segHist, check to make sure the packing is correct
+        if (i < segHist[1])
+        {
+            const uint32_t packedSegmentCount = packedSegCounts[i];
+            const uint32_t endIndex = binOffset + packedSegmentCount;
+
+            if (endIndex > totalSegCount)
+            {
+                //Is the packed segment in bounds?
+                if(verbose)
+                    printf("Error case 0\n");
+                atomicAdd((uint32_t*)&errCount[0], 1);
+            }
+            else
+            {
+                uint32_t total = 0;
+                for (uint32_t j = 0; j < packedSegmentCount; ++j)
+                {
+                    //Are each of the individual seg lenths less than 32?
+                    uint32_t nextIndex = j + 1 + binOffset;
+                    uint32_t end = nextIndex == totalSegCount ? totalSegLength : segments[nextIndex];
+                    uint32_t segLength = end - segments[j + binOffset];
+                    if (segLength > 32)
+                    {
+                        if(verbose)
+                            printf("Error case 1\n");
+                        atomicAdd((uint32_t*)&errCount[0], 1);
+                        break;
+                    }
+                    else
+                    {
+                        total += segLength;
+                        //is the total less than 32?
+                        if (total > 32)
+                        {
+                            if(verbose)
+                                printf("Error case 2\n");
+                            atomicAdd((uint32_t*)&errCount[0], 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        else //If not, make sure the segment length is correct
+        {
+            uint32_t nextIndex = 1 + binOffset;
+            uint32_t end = nextIndex == totalSegCount ? totalSegLength : segments[nextIndex];
+            uint32_t segLength = end - segments[binOffset];
+
+            if (i >= segHist[1] && i < segHist[2])
+            {
+                if (segLength <= 32 || segLength > 64)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 32-64\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+                    
+            }
+
+            if (i >= segHist[2] && i < segHist[3])
+            {
+                if (segLength <= 64 || segLength > 128)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 64-128\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[3] && i < segHist[4])
+            {
+                if (segLength <= 128 || segLength > 256)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 128-256\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[4] && i < segHist[5])
+            {
+                if (segLength <= 256 || segLength > 512)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 256-512\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[5] && i < segHist[6])
+            {
+                if (segLength <= 512 || segLength > 1024)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 512-1024\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[6] && i < segHist[7])
+            {
+                if (segLength <= 1024 || segLength > 2048)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 1024-2048\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[7] && i < segHist[8])
+            {
+                if (segLength <= 2048 || segLength > 4096)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 2048-4096\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[8] && i < segHist[9])
+            {
+                if (segLength <= 4096 || segLength > 6144)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 4096-6144\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[9] && i < segHist[10])
+            {
+                if (segLength <= 6144 || segLength > 8192)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 6144-8192\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[10])
+            {
+                if (segLength <= 8192)
+                {
+                    if (verbose)
+                        printf("%u Error SegLength %u in interval 8192+\n", i, segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+        }
+
+        /*if (!threadIdx.x && !blockIdx.x)
+        {
+            for (uint32_t z = 0; z < 11; ++z)
+                printf("%u: %u\n", z, segHist[z]);
+        }*/
     }
 }
 
