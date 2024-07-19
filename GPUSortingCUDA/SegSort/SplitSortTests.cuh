@@ -65,6 +65,7 @@ public:
         SplitSortFreeTempMemory(m_tempMem);
     }
 
+    //TODO reexamine this test to ensure nothing broke
     void TestBinningRandomSegLength(
         const uint32_t testCount,
         const uint32_t maxSegLength,
@@ -142,10 +143,10 @@ public:
         }
 
         printf("Beginning Split Sort Test All Random Segment Lengths \n");
-        uint32_t totalSegLength = 1 << 24;
+        uint32_t totalSegLength = 1 << 27;
         uint32_t testsPassed = 0;
-        uint32_t min = 8;
-        uint32_t max = 8192;
+        uint32_t min = 16384;
+        uint32_t max = 16384;
         for (uint32_t maxSegLength = min; maxSegLength <= max; maxSegLength <<= 1)
         {
             for (uint32_t i = 0; i < testsPerSegmentLength; ++i)
@@ -163,7 +164,7 @@ public:
                     segInitInfo[0],
                     m_tempMem);
 
-                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], true); //enable for super verbose
+                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], false); //enable for super verbose
                 if (passed)
                     testsPassed++;
 

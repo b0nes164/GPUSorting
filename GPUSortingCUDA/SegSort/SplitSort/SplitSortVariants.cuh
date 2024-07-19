@@ -16,12 +16,6 @@
 #include "SplitSortUtils.cuh"
 #include "SplitSortBBUtils.cuh"
 
-//for the chained scan with decoupled lookback
-#define FLAG_NOT_READY      0
-#define FLAG_REDUCTION      1
-#define FLAG_INCLUSIVE      2
-#define FLAG_MASK           3
-
 namespace SplitSortInternal
 {
     struct BinInfo32
@@ -835,7 +829,6 @@ namespace SplitSortInternal
         }
     }
 
-    //TODO remove uncessary ternary
     template<uint32_t BITS_TO_RANK>
     __device__ __forceinline__ void MultiSplitRadixAsm(
         uint32_t& eqMask,
@@ -863,22 +856,23 @@ namespace SplitSortInternal
         uint32_t KEYS_PER_THREAD,
         uint32_t BITS_TO_RANK,
         uint32_t MASK>
-        __device__ __forceinline__ void RankKeys(
-            uint32_t* keys,
-            uint32_t* offsets,
-            uint32_t* warpHist,
-            const uint32_t radixShift)
+    __device__ __forceinline__ void RankKeys(
+        uint32_t* keys,
+        uint32_t* offsets,
+        uint32_t* s_warpHist,
+        const uint32_t radixShift)
     {
         #pragma unroll
         for (uint32_t i = 0; i < KEYS_PER_THREAD; ++i)
         {
             uint32_t eqMask;
             MultiSplitRadixAsm<BITS_TO_RANK>(eqMask, keys[i], radixShift);
-            const uint32_t ltEqPeers = __popc(eqMask & getLaneMaskLt());
+            offsets[i] = __popc(eqMask & getLaneMaskLt());
+            const uint32_t highestRankPeer = LANE_COUNT - __clz(eqMask) - 1;
             uint32_t preIncrementVal;
-            if (ltEqPeers == 0)
-                preIncrementVal = atomicAdd((uint32_t*)&warpHist[keys[i] >> radixShift & MASK], __popc(eqMask));
-            offsets[i] = __shfl_sync(0xffffffff, preIncrementVal, __ffs(eqMask) - 1) + ltEqPeers;
+            if (getLaneId() == highestRankPeer)
+                preIncrementVal = atomicAdd((uint32_t*)&s_warpHist[keys[i] >> radixShift & MASK], offsets[i] + 1);
+            offsets[i] += __shfl_sync(0xffffffff, preIncrementVal, highestRankPeer);
         }
     }
 
@@ -1120,8 +1114,3 @@ namespace SplitSortInternal
         }
     }
 }
-
-#undef FLAG_MASK
-#undef FLAG_INCLUSIVE
-#undef FLAG_REDUCTION
-#undef FLAG_NOT_READY

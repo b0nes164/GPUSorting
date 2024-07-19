@@ -477,6 +477,29 @@ __global__ void Validate(uint32_t* sort, uint32_t* sortPayload, uint32_t* errCou
     }
 }
 
+//Assume blockDim == RADIX
+__global__ void ValidateInitialOneSweepState(
+    uint32_t* passHistograms,
+    uint32_t* errCount,
+    const uint32_t binningPartitions)
+{
+    const uint32_t end = binningPartitions * blockDim.x;
+    if ((passHistograms[threadIdx.x] & 3) != 2)
+    {
+        //atomicAdd((uint32_t*)&errCount[0], 1);
+        printf("WARN FIRST STATE \n");
+    }
+
+    for (uint32_t i = threadIdx.x + blockDim.x; i < end; i += blockDim.x)
+    {
+        if ((passHistograms[i] & 3) != 0)
+        {
+            //atomicAdd((uint32_t*)&errCount[0], 1);
+            printf("WARN PASS STATE \n");
+        }
+    }
+}
+
 __global__ void ValidateFixLengthSegments(
     uint32_t* sort,
     uint32_t* payload,
@@ -752,10 +775,11 @@ __global__ void ValidateBinningRandomSegLengths(
     }
 }
 
-__global__ void Print(uint32_t* toPrint, uint32_t size)
+template<class T>
+__global__ void Print(T* toPrint, uint32_t size)
 {
     for (uint32_t i = 0; i < size; ++i)
     {
-        printf("%u: %u\n", i, toPrint[i]);
+        printf("%u: %u\n", i, (uint32_t)toPrint[i]);
     }
 }

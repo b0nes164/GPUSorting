@@ -462,24 +462,34 @@ namespace SplitSortInternal
         return (uint32_t*)tempMem;
     }
 
-    __host__ __forceinline__ uint32_t* GetSegHistDevicePointer(void* tempMem) //TODO CHANGE THESE
+    __host__ __forceinline__ uint32_t* GetSegHistDevicePointer(void* tempMem)
     {
-        return &((uint32_t*)tempMem)[1];
+        return &((uint32_t*)tempMem)[2];
     }
 
     __host__ __forceinline__ uint32_t* GetNextFitReductionPointer(void* tempMem)
     {
-        return &((uint32_t*)tempMem)[1 + SEG_INFO_SIZE];
+        return &((uint32_t*)tempMem)[2 + SEG_INFO_SIZE];
+    }
+
+    __host__ __forceinline__ uint32_t* GetBinAndCoalesceReductionsPointer(void* tempMem, const uint32_t nextFitPartitions)
+    {
+        return &((uint32_t*)tempMem)[2 + SEG_INFO_SIZE + nextFitPartitions];
     }
 
     __host__ __forceinline__ uint32_t* GetPackedSegCountsPointer(void* tempMem, const uint32_t nextFitPartitions)
     {
-        return &((uint32_t*)tempMem)[1 + SEG_INFO_SIZE + nextFitPartitions];
+        return &((uint32_t*)tempMem)[2 + SEG_INFO_SIZE + nextFitPartitions * 2];
     }
 
     __host__ __forceinline__ uint32_t* GetBinOffsetsPointer(void* tempMem, const uint32_t nextFitPartitions, const uint32_t totalSegCount)
     {
-        return &((uint32_t*)tempMem)[1 + SEG_INFO_SIZE + nextFitPartitions + totalSegCount];
+        return &((uint32_t*)tempMem)[2 + SEG_INFO_SIZE + nextFitPartitions * 2 + totalSegCount];
+    }
+
+    __host__ __forceinline__ uint32_t* GetLargeSegmentOffsetsPointer(void* tempMem, const uint32_t nextFitPartitions, const uint32_t totalSegCount)
+    {
+        return &((uint32_t*)tempMem)[2 + SEG_INFO_SIZE + (nextFitPartitions + totalSegCount) * 2];
     }
 
     //***********************************************************************
@@ -495,7 +505,7 @@ namespace SplitSortInternal
         const uint32_t totalSegLength,
         const uint32_t nextFitPartitions)
     {
-        cudaMemset(tempMem, 0, (1 + SEG_INFO_SIZE + nextFitPartitions) * sizeof(uint32_t));
+        cudaMemset(tempMem, 0, (2 + SEG_INFO_SIZE + nextFitPartitions * 2) * sizeof(uint32_t));
         cudaDeviceSynchronize();
 
         const uint32_t k_nextFitBlockDim = 64;
@@ -505,7 +515,7 @@ namespace SplitSortInternal
         
         NextFitBinPacking<
             NEXT_FIT_PART_SIZE,
-            k_nextFitBlockDim,
+            k_nextFitBlockDim / LANE_COUNT,
             k_nextFitSPT,
             k_minBinSize,
             SEG_INFO_SIZE>
@@ -519,17 +529,40 @@ namespace SplitSortInternal
             totalSegCount,
             totalSegLength);
 
-        Scan<SEG_HIST_SIZE><<<1, 32>>>(segHistDevicePointer);
+        BinningScan<SEG_HIST_SIZE><<<1, 32>>>(segHistDevicePointer);
 
         cudaMemcpyAsync(segInfo, GetSegHistDevicePointer(tempMem), SEG_INFO_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
+        //If there are no segments larger than 8192, use the simple bin,
+        //Else calculate the offsets necessary to coalesce the large segments
+        //into a single contiguous buffer for fix style sorting 
         const uint32_t k_binThreads = 256;
-        Bin<k_minBinSize><<<dvrup<k_binThreads>(totalSegCount), k_binThreads>>>(
-            segments,
-            segHistDevicePointer,
-            binOffsets,
-            totalSegCount,
-            totalSegLength);
+        if (0 < segInfo[0] - segInfo[10])
+        {
+            BinAndCoalesce<
+                NEXT_FIT_PART_SIZE, //Use same partition size to reuse partitioning calculations
+                NEXT_FIT_PART_SIZE / k_binThreads,
+                k_binThreads / LANE_COUNT,
+                k_minBinSize>
+            <<<nextFitPartitions, k_binThreads>>>(
+                segments,
+                segHistDevicePointer,
+                binOffsets,
+                GetLargeSegmentOffsetsPointer(tempMem, nextFitPartitions, totalSegCount),
+                GetAtomicIndexPointer(tempMem) + 1,
+                GetBinAndCoalesceReductionsPointer(tempMem, nextFitPartitions),
+                totalSegCount,
+                totalSegLength);
+        }
+        else
+        {
+            BinSimple<k_minBinSize><<<dvrup<k_binThreads>(totalSegCount), k_binThreads>>>(
+                segments,
+                segHistDevicePointer,
+                binOffsets,
+                totalSegCount,
+                totalSegLength);
+        }
     }
 }
 
@@ -545,9 +578,11 @@ __host__ void SplitSortAllocateTempMemory(
     cudaMalloc(&tempMem,
         (totalSegCount +        //BinOffsets
         totalSegCount +         //Maximum possible size of packed segment counts
+        totalSegCount +         //LargeSegmentOffsets
         nextFitPartitions +     //For the single pass scan during NextFitBinPacking
+        nextFitPartitions +     //For the single pass scan during BinAndCoalesceLarge
         SEG_INFO_SIZE +         //Size of the segment info array
-        1)                      //Atomic bumping index for single pass scan
+        2)                      //Atomic bumping indexes for single pass scans
         * sizeof(uint32_t));
     //TODO CUDA ERR CHECK MALLOC
 }
@@ -733,15 +768,16 @@ __host__ void SplitSortPairs(
     if (segsInCurBin)
     {
         //Still under construction
-        /*SplitSortInternal::SplitSortLarge<V, BITS_TO_SORT>(
+        SplitSortInternal::SplitSortLarge<V, BITS_TO_SORT>(
             segments,
-            binOffsets,
+            binOffsets + segInfo[10],
+            SplitSortInternal::GetLargeSegmentOffsetsPointer(tempMem, nextFitPartitions, totalSegCount),
             sort,
             values,
             totalSegCount,
             totalSegLength,
             segsInCurBin,
-            segInfo[11]);*/
+            segInfo[11]);
     }
 }
 
