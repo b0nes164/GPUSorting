@@ -173,6 +173,7 @@ __global__ void InitFixedSegLengthRandomValue(
     V* payload,
     uint32_t segLength,
     uint32_t totalSegCount,
+    uint32_t bitsToSort,
     uint32_t seed)
 {
     uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -187,6 +188,7 @@ __global__ void InitFixedSegLengthRandomValue(
 
     const uint32_t sCount = totalSegCount;
     const uint32_t sLength = segLength;
+    const uint32_t bitMask = (uint32_t)((1ULL << bitsToSort) - 1);
     for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
     {
         const uint32_t devOffset = k * sLength;
@@ -196,13 +198,10 @@ __global__ void InitFixedSegLengthRandomValue(
             z2 = TAUS_STEP_2;
             z3 = TAUS_STEP_3;
             z4 = LCG_STEP;
-            /*const uint32_t t = HYBRID_TAUS;
-            sort[i + devOffset] = t;
-            payload[i + devOffset] = t;*/
             SegRandomTemplate<V>(
                 sort[i + devOffset],
                 payload[i + devOffset],
-                HYBRID_TAUS);
+                HYBRID_TAUS & bitMask);
         }
     }
 }
@@ -328,11 +327,11 @@ __global__ void InitRandomSegLengthUniqueValue(
 //by multiplying the index by the seg length
 __global__ void InitSegLengthsFixed(
     uint32_t* segments,
-    uint32_t maxSegments,
+    uint32_t totalSegCount,
     uint32_t segmentLength)
 {
     const uint32_t segLength = segmentLength;
-    for (uint32_t i = threadIdx.x + blockIdx.x * blockDim.x; i < maxSegments; i += blockDim.x * gridDim.x)
+    for (uint32_t i = threadIdx.x + blockIdx.x * blockDim.x; i < totalSegCount; i += blockDim.x * gridDim.x)
         segments[i] = i * segLength;
 }
 
@@ -637,8 +636,28 @@ __global__ void ValidateRandomLengthSegments(
     }
 }
 
+template<class V>
+__global__ void ValidateSegSortSanity(
+    uint32_t* sortA,
+    uint32_t* sortB,
+    V* payloadA,
+    V* payloadB,
+    uint32_t* errCount,
+    const uint32_t totalSegLength)
+{
+    const uint32_t size = totalSegLength;
+    for (uint32_t i = threadIdx.x + blockIdx.x * blockDim.x; i < size; i += blockDim.x * gridDim.x)
+    {
+        if(sortA[i] != sortB[i])
+            atomicAdd((uint32_t*)&errCount[0], 1);
+        if(payloadA[i] != payloadB[i])
+            atomicAdd((uint32_t*)&errCount[0], 1);
+    }
+}
+
 //Is the packing good?
 //Are the segments in the right bins?
+//TODO update for new larger bins
 __global__ void ValidateBinningRandomSegLengths(
     uint32_t* segments,
     uint32_t* binOffsets,

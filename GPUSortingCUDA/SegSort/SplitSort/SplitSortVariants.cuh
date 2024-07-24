@@ -816,6 +816,7 @@ namespace SplitSortInternal
             }
         }
 
+        //Not worth transposing to coalesce the stores here
         if constexpr (!SHOULD_PRE_SCATTER)
         {
             #pragma unroll
@@ -1087,8 +1088,11 @@ namespace SplitSortInternal
                     vals[k] = values[i];
             }
 
-            for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
-                indexes[k] = s_indexes[indexes[k]];
+            if constexpr (BITS_TO_SORT > RADIX_LOG)
+            {
+                for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
+                    indexes[k] = s_indexes[indexes[k]];
+            }
             __syncthreads();
 
             V* s_payloadsOut = reinterpret_cast<V*>(s_hist);
@@ -1134,8 +1138,8 @@ namespace SplitSortInternal
 
     template<
         class V,
-        uint32_t BLOCK_STRIDE_LOG,
-        uint32_t BLOCK_STRIDE_MASK,
+        uint32_t GRID_STRIDE_LOG,
+        uint32_t GRID_STRIDE_MASK,
         uint32_t PART_STRIDE>
     __device__ __forceinline__ void GetSegmentInfoRadixMerge(
         const uint32_t* segments,
@@ -1146,9 +1150,9 @@ namespace SplitSortInternal
         const uint32_t totalSegLength,
         uint32_t& totalLocalLength)
     {
-        const uint32_t binOffset = binOffsets[blockIdx.x >> BLOCK_STRIDE_LOG];
+        const uint32_t binOffset = binOffsets[blockIdx.x >> GRID_STRIDE_LOG];
         const uint32_t segmentEnd = binOffset + 1 == totalSegCount ? totalSegLength : segments[binOffset + 1];
-        const uint32_t segmentStart = segments[binOffset] + (blockIdx.x & BLOCK_STRIDE_MASK) * PART_STRIDE;
+        const uint32_t segmentStart = segments[binOffset] + (blockIdx.x & GRID_STRIDE_MASK) * PART_STRIDE;
         totalLocalLength = segmentEnd > segmentStart ? segmentEnd - segmentStart : 0;
         if (totalLocalLength > PART_STRIDE)
             totalLocalLength = PART_STRIDE;
