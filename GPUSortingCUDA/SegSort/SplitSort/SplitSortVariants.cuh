@@ -455,14 +455,15 @@ namespace SplitSortInternal
         uint2* dest,
         uint32_t startA,
         uint32_t startB,
-        const uint32_t mergeLength,
+        const uint32_t endA,
+        const uint32_t endB,
         const uint32_t tMergeLength)
     {
         for (uint32_t i = 0; i < tMergeLength; ++i)
         {
-            const uint2 t0 = startA < mergeLength ? source[startA] : uint2{ 0xffffffff, 0xffffffff };
-            const uint2 t1 = startB < (mergeLength << 1) ? source[startB] : uint2{ 0xffffffff, 0xffffffff };
-            bool pred = startB >= (mergeLength << 1) || (startA < mergeLength&& t0.x <= t1.x);
+            const uint2 t0 = startA < endA ? source[startA] : uint2{ 0xffffffff, 0xffffffff };
+            const uint2 t1 = startB < endB ? source[startB] : uint2{ 0xffffffff, 0xffffffff };
+            bool pred = startB >= endB || (startA < endA && t0.x <= t1.x);
 
             if (pred)
             {
@@ -482,10 +483,10 @@ namespace SplitSortInternal
         uint2* s_pairs,
         const uint2* pairs,
         const uint32_t stride,
-        const uint32_t totalLocalLength)
+        const uint32_t remainingLength)
     {
         const uint32_t start = id * stride;
-        if (start < totalLocalLength)
+        if (start < remainingLength)
         {
             #pragma unroll
             for (uint32_t i = start, k = 0; k < stride; ++i, ++k)
@@ -499,10 +500,12 @@ namespace SplitSortInternal
         const uint32_t mergeId,
         const uint32_t mergeThreads,
         const uint32_t mergeLength,
-        const uint32_t totalLocalLength)
+        const uint32_t remainingLength)
     {
-        const uint32_t tStart = (mergeId << 1) * mergeLength / mergeThreads;
-        if (tStart < totalLocalLength)
+        const uint32_t combinedLength = mergeLength << 1;
+        const uint32_t tMergeLength = combinedLength / mergeThreads;
+        const uint32_t tStart = mergeId * tMergeLength;
+        if (tStart < remainingLength)
         {
             const uint32_t startA = find_kth3(
                 s_pairs,
@@ -510,21 +513,20 @@ namespace SplitSortInternal
                 mergeLength,
                 tStart);
             const uint32_t startB = mergeLength + tStart - startA;
-
             MergeGather(
                 s_pairs,
                 pairs,
                 startA,
                 startB,
                 mergeLength,
-                (mergeLength << 1) / mergeThreads);
+                remainingLength < combinedLength ? remainingLength : combinedLength,
+                tMergeLength);
         }
     }
 
     template<
         uint32_t START_LOG,
         uint32_t END_LOG,
-        uint32_t KEYS_PER_THREAD,
         bool SHOULD_SCATTER_FINAL>
     __device__ __forceinline__ void MultiLevelMergeWarp(
         uint2* s_pairs,
@@ -534,17 +536,21 @@ namespace SplitSortInternal
         #pragma unroll
         for (uint32_t m = START_LOG; m < END_LOG; ++m)
         {
+            const uint32_t mergeLength = 1 << m;
             #pragma unroll
             for (uint32_t i = 0; i < (1 << END_LOG - m); i += 2)
             {
                 const uint32_t mergeStart = i << m;
-                Merge(
-                    &s_pairs[mergeStart],
-                    &pairs[mergeStart >> LANE_LOG],
-                    getLaneId(),
-                    LANE_COUNT,
-                    1 << m,
-                    totalLocalLength);
+                if (mergeStart + mergeLength < totalLocalLength)
+                {
+                    Merge(
+                        &s_pairs[mergeStart],
+                        &pairs[mergeStart >> LANE_LOG],
+                        getLaneId(),
+                        LANE_COUNT,
+                        mergeLength,
+                        totalLocalLength - mergeStart);
+                }
             }
             __syncwarp(0xffffffff);
 
@@ -555,12 +561,15 @@ namespace SplitSortInternal
                 {
                     const uint32_t mergeStart = i << m;
                     const uint32_t regStart = mergeStart >> LANE_LOG;
-                    MergeScatter(
-                        getLaneId(),
-                        &s_pairs[mergeStart],
-                        &pairs[regStart],
-                        1 << m - LANE_LOG + 1,
-                        totalLocalLength);
+                    if (mergeStart + mergeLength < totalLocalLength)
+                    {
+                        MergeScatter(
+                            getLaneId(),
+                            &s_pairs[mergeStart],
+                            &pairs[regStart],
+                            1 << m - LANE_LOG + 1,
+                            totalLocalLength - mergeStart);
+                    }
                 }
             }
             __syncwarp(0xffffffff);
@@ -614,7 +623,6 @@ namespace SplitSortInternal
         MultiLevelMergeWarp<
             WARP_LOG_START,
             WARP_LOG_END,
-            KEYS_PER_THREAD,
             false>(
                 s_warpPairs,
                 pairs,
@@ -694,23 +702,29 @@ namespace SplitSortInternal
             const uint32_t mergeThreads = 1 << w << LANE_LOG;
             const uint32_t mergeId = threadIdx.x & mergeThreads - 1;
 
-            Merge(
-                &s_pairs[mergeStart],
-                pairs,
-                mergeId,
-                mergeThreads,
-                mergeLength,
-                totalLocalLength);
+            if (mergeStart + mergeLength < totalLocalLength)
+            {
+                Merge(
+                    &s_pairs[mergeStart],
+                    pairs,
+                    mergeId,
+                    mergeThreads,
+                    mergeLength,
+                    totalLocalLength - mergeStart);
+            }
             __syncthreads();
 
             if (m < END_LOG - 1 || SHOULD_SCATTER_FINAL)
             {
-                MergeScatter(
-                    mergeId,
-                    &s_pairs[mergeStart],
-                    pairs,
-                    KEYS_PER_THREAD,
-                    totalLocalLength);
+                if (mergeStart + mergeLength < totalLocalLength)
+                {
+                    MergeScatter(
+                        mergeId,
+                        &s_pairs[mergeStart],
+                        pairs,
+                        KEYS_PER_THREAD,
+                        totalLocalLength - mergeStart);
+                }
             }
             __syncthreads();
         }
@@ -761,7 +775,6 @@ namespace SplitSortInternal
         MultiLevelMergeWarp<
             WARP_LOG_START,
             WARP_LOG_END,
-            KEYS_PER_THREAD,
             true>(
                 s_warpPairs,
                 pairs,
@@ -952,10 +965,12 @@ namespace SplitSortInternal
                 radixShift);
             __syncthreads();
 
+            constexpr uint32_t HISTS_SIZE = WARPS - 1;
             for (uint32_t i = threadIdx.x; i < RADIX; i += blockDim.x)
             {
                 uint32_t reduction = s_hist[i];
-                for (uint32_t k = i + RADIX; k < (RADIX * WARPS); k += RADIX)
+                #pragma unroll
+                for (uint32_t k = i + RADIX, j = 0; j < HISTS_SIZE; k += RADIX, ++j)
                 {
                     reduction += s_hist[k];
                     s_hist[k] = reduction - s_hist[k];
@@ -1022,30 +1037,33 @@ namespace SplitSortInternal
             }
             __syncthreads();
 
-            if (radixShift < BITS_TO_SORT - RADIX_LOG)
+            if constexpr (BITS_TO_SORT > RADIX_LOG)
             {
-                if (radixShift)
+                if (radixShift < BITS_TO_SORT - RADIX_LOG)
                 {
-                    #pragma unroll
-                    for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
-                        k < KEYS_PER_THREAD;
-                        i += LANE_COUNT, ++k)
+                    if (radixShift)
                     {
-                        keys[k] = s_hist[i];
-                        indexes[k] = s_indexes[indexes[k]];
+                        #pragma unroll
+                        for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
+                            k < KEYS_PER_THREAD;
+                            i += LANE_COUNT, ++k)
+                        {
+                            keys[k] = s_hist[i];
+                            indexes[k] = s_indexes[indexes[k]];
+                        }
                     }
-                }
-                else
-                {
-                    #pragma unroll
-                    for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
-                        k < KEYS_PER_THREAD;
-                        i += LANE_COUNT, ++k)
+                    else
                     {
-                        keys[k] = s_hist[i];
+                        #pragma unroll
+                        for (uint32_t i = getLaneId() + WARP_INDEX * KEYS_PER_WARP, k = 0;
+                            k < KEYS_PER_THREAD;
+                            i += LANE_COUNT, ++k)
+                        {
+                            keys[k] = s_hist[i];
+                        }
                     }
+                    __syncthreads();
                 }
-                __syncthreads();
             }
         }
 
@@ -1112,5 +1130,243 @@ namespace SplitSortInternal
                     values[s_indexes[indexes[k]]] = vals[k];
             }
         }
+    }
+
+    template<
+        class V,
+        uint32_t BLOCK_STRIDE_LOG,
+        uint32_t BLOCK_STRIDE_MASK,
+        uint32_t PART_STRIDE>
+    __device__ __forceinline__ void GetSegmentInfoRadixMerge(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t*& sort,
+        V*& values,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength,
+        uint32_t& totalLocalLength)
+    {
+        const uint32_t binOffset = binOffsets[blockIdx.x >> BLOCK_STRIDE_LOG];
+        const uint32_t segmentEnd = binOffset + 1 == totalSegCount ? totalSegLength : segments[binOffset + 1];
+        const uint32_t segmentStart = segments[binOffset] + (blockIdx.x & BLOCK_STRIDE_MASK) * PART_STRIDE;
+        totalLocalLength = segmentEnd > segmentStart ? segmentEnd - segmentStart : 0;
+        if (totalLocalLength > PART_STRIDE)
+            totalLocalLength = PART_STRIDE;
+
+        sort += segmentStart;
+        values += segmentStart;
+    }
+
+    template<class V>
+    __device__ __forceinline__ void MergeGatherDevice(
+        const uint32_t* sort,
+        const V* values,
+        uint32_t* keys,
+        V* tValues,
+        uint32_t startA,
+        uint32_t startB,
+        const uint32_t endA,
+        const uint32_t endB,
+        const uint32_t tMergeLength)
+    {
+        for (uint32_t i = 0; i < tMergeLength; ++i)
+        {
+            const uint32_t k0 = startA < endA ? sort[startA] : 0xffffffff;
+            const uint32_t k1 = startB < endB ? sort[startB] : 0xffffffff;
+            bool pred = startB >= endB || (startA < endA && k0 <= k1);
+
+            if (pred)
+            {
+                keys[i] = k0;
+                tValues[i] = values[startA];
+                ++startA;
+            }
+            else
+            {
+                keys[i] = k1;
+                tValues[i] = values[startB];
+                ++startB;
+            }
+        }
+    }
+
+    template<class V>
+    __device__ __forceinline__ void MergeDevice(
+        const uint32_t* sort,
+        const V* values,
+        uint32_t* keys,
+        V* tValues,
+        const uint32_t mergeId,
+        const uint32_t mergeLength,
+        const uint32_t mergeThreads,
+        const uint32_t remainingLength)
+    {
+        const uint32_t combinedLength = mergeLength << 1;
+        const uint32_t tMergeLength = combinedLength / mergeThreads;
+        const uint32_t tStart = mergeId * tMergeLength;
+        if (remainingLength < combinedLength)
+        {
+            const uint32_t startA = find_kth3_device_partial(
+                sort,
+                &sort[mergeLength],
+                mergeLength,
+                tStart,
+                remainingLength > mergeLength ? remainingLength - mergeLength : 0);
+            if (startA < remainingLength)
+            {
+                const uint32_t startB = mergeLength + tStart - startA;
+                MergeGatherDevice<V>(
+                    sort,
+                    values,
+                    keys,
+                    tValues,
+                    startA,
+                    startB,
+                    mergeLength,
+                    remainingLength,
+                    tMergeLength);
+            }
+        }
+        
+        if(remainingLength >= combinedLength)
+        {
+            const uint32_t startA = find_kth3_device(
+                sort,
+                &sort[mergeLength],
+                mergeLength,
+                tStart);
+            const uint32_t startB = mergeLength + tStart - startA;
+            MergeGatherDevice<V>(
+                sort,
+                values,
+                keys,
+                tValues,
+                startA,
+                startB,
+                mergeLength,
+                combinedLength,
+                tMergeLength);
+        }
+    }
+
+    template<
+        class V,
+        uint32_t KEYS_PER_THREAD,
+        uint32_t START_LOG,
+        uint32_t END_LOG,
+        uint32_t BLOCK_DIM_LOG,
+        uint32_t GRID_STRIDE_LOG>
+    __device__ __forceinline__ void MultiLevelMergeGrid(
+        uint32_t* sort,
+        V* values,
+        volatile uint32_t* gridLock,
+        const uint32_t gridId,
+        const uint32_t totalLocalLength)
+    {
+        #pragma unroll
+        for (uint32_t m = START_LOG, b = 1; m < END_LOG; ++m, ++b)
+        {
+            const uint32_t mergeStart = gridId >> b << m + 1;
+            const uint32_t mergeLength = 1 << m;
+            const uint32_t mergeThreads = 1 << b << BLOCK_DIM_LOG;
+            const uint32_t mergeId = threadIdx.x + (gridId << BLOCK_DIM_LOG) & mergeThreads - 1;
+            uint32_t keys[KEYS_PER_THREAD];
+            V tValues[KEYS_PER_THREAD];
+            
+            if (mergeStart + mergeLength < totalLocalLength)
+            {
+                MergeDevice<V>(
+                    &sort[mergeStart],
+                    &values[mergeStart],
+                    keys,
+                    tValues,
+                    mergeId,
+                    mergeLength,
+                    mergeThreads,
+                    totalLocalLength - mergeStart);
+            }
+            
+            __syncthreads();
+            if (!threadIdx.x)
+            {
+                const uint32_t expected = b << GRID_STRIDE_LOG;
+                atomicAdd((uint32_t*)&gridLock[0], 1);
+                while (true)
+                {
+                    if (gridLock[0] >= expected)
+                        break;
+                }
+            }
+            __syncthreads();
+
+            if (mergeStart + mergeLength < totalLocalLength)
+            {
+                TransposeAndWrite8(keys, &sort[mergeStart], mergeId, totalLocalLength - mergeStart);
+                TransposeAndWrite8(tValues, &values[mergeStart], mergeId, totalLocalLength - mergeStart);
+            }
+            
+            if (m < END_LOG - 1)
+            {
+                __syncthreads();
+                if (!threadIdx.x)
+                {
+                    const uint32_t expected = b << GRID_STRIDE_LOG;
+                    atomicAdd((uint32_t*)&gridLock[1], 1);
+                    while (true)
+                    {
+                        if (gridLock[1] >= expected)
+                            break;
+                    }
+                }
+                __syncthreads();
+                __threadfence();
+            }
+        }
+    }
+
+    //This requires forward progress
+    template<
+        class V,
+        uint32_t KEYS_PER_THREAD,
+        uint32_t GRID_STRIDE_LOG,
+        uint32_t GRID_STRIDE_MASK,
+        uint32_t START_LOG,
+        uint32_t END_LOG,
+        uint32_t BLOCK_DIM_LOG>
+    __device__ __forceinline__ void SplitSortMergeDeviceGrid(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        V* values,
+        volatile uint32_t* index,
+        volatile uint32_t* gridLock,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        __shared__ uint32_t s_broadcast;
+        if (!threadIdx.x)
+            s_broadcast = atomicAdd((uint32_t*)&index[0], 1);
+        __syncthreads();
+        const uint32_t partitionIndex = s_broadcast;
+        const uint32_t binOffset = binOffsets[partitionIndex >> GRID_STRIDE_LOG];
+        const uint32_t segmentEnd = binOffset + 1 == totalSegCount ? totalSegLength : segments[binOffset + 1];
+        const uint32_t segmentStart = segments[binOffset];
+        const uint32_t totalLocalLength = segmentEnd - segmentStart;
+        sort += segmentStart;
+        values += segmentStart;
+        gridLock += partitionIndex >> GRID_STRIDE_LOG << 1;
+
+        MultiLevelMergeGrid<
+            V,
+            KEYS_PER_THREAD,
+            START_LOG,
+            END_LOG,
+            BLOCK_DIM_LOG,
+            GRID_STRIDE_LOG>(
+                sort,
+                values,
+                gridLock,
+                partitionIndex & GRID_STRIDE_MASK,
+                totalLocalLength);
     }
 }

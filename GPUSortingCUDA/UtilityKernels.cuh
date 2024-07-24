@@ -134,9 +134,43 @@ __global__ void InitFixedSegLengthDescendingValue(
     }
 }
 
+
+template<class V>
+__device__ void SegRandomTemplate(
+    uint32_t& sort,
+    V& payload,
+    const uint32_t random)
+{
+    //TODO ASSERT ERROR
+}
+
+template<>
+__device__ void SegRandomTemplate<uint32_t>(
+    uint32_t& sort,
+    uint32_t& payload,
+    const uint32_t random)
+{
+    sort = random;
+    payload = random;
+}
+
+template<>
+__device__ void SegRandomTemplate<double>(
+    uint32_t& sort,
+    double& payload,
+    const uint32_t random)
+{
+    sort = random;
+    uint64_t r64 = random;
+    double d;
+    memcpy(&d, &r64, sizeof(double));
+    payload = d;
+}
+
+template<class V>
 __global__ void InitFixedSegLengthRandomValue(
     uint32_t* sort,
-    uint32_t* payload,
+    V* payload,
     uint32_t segLength,
     uint32_t totalSegCount,
     uint32_t seed)
@@ -162,60 +196,25 @@ __global__ void InitFixedSegLengthRandomValue(
             z2 = TAUS_STEP_2;
             z3 = TAUS_STEP_3;
             z4 = LCG_STEP;
-            const uint32_t t = HYBRID_TAUS;
+            /*const uint32_t t = HYBRID_TAUS;
             sort[i + devOffset] = t;
-            payload[i + devOffset] = t;
+            payload[i + devOffset] = t;*/
+            SegRandomTemplate<V>(
+                sort[i + devOffset],
+                payload[i + devOffset],
+                HYBRID_TAUS);
         }
     }
 }
 
-__global__ void InitFixedSegLengthRandomValue(
-    uint32_t* sort,
-    double* payload,
-    uint32_t segLength,
-    uint32_t totalSegCount,
-    uint32_t seed)
-{
-    uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
-    uint32_t z1 = (idx << 2) * seed;
-    uint32_t z2 = ((idx << 2) + 1) * seed;
-    uint32_t z3 = ((idx << 2) + 2) * seed;
-    uint32_t z4 = ((idx << 2) + 3) * seed;
-    z1 = TAUS_STEP_1;
-    z2 = TAUS_STEP_2;
-    z3 = TAUS_STEP_3;
-    z4 = LCG_STEP;
-
-    const uint32_t sCount = totalSegCount;
-    const uint32_t sLength = segLength;
-    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
-    {
-        const uint32_t devOffset = k * sLength;
-        for (uint32_t i = threadIdx.x; i < sLength; i += blockDim.x)
-        {
-            const uint32_t t = HYBRID_TAUS;
-            sort[i + devOffset] = t;
-
-            z1 = TAUS_STEP_1;
-            z2 = TAUS_STEP_2;
-            z3 = TAUS_STEP_3;
-            z4 = LCG_STEP;
-
-            uint64_t y = (uint64_t)HYBRID_TAUS << 32 | t;
-            //uint64_t y = (uint64_t)t;
-            double x;
-            memcpy(&x, &y, sizeof(double));
-            payload[i + devOffset] = x;
-        }
-    }
-}
-
+template<class V>
 __global__ void InitRandomSegLengthRandomValue(
     uint32_t* sort,
-    uint32_t* payload,
+    V* payload,
     uint32_t* segments,
     uint32_t totalSegCount,
     uint32_t totalSegLength,
+    uint32_t bitsToSort,
     uint32_t seed)
 {
     uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -229,6 +228,7 @@ __global__ void InitRandomSegLengthRandomValue(
     z4 = LCG_STEP;
 
     const uint32_t sCount = totalSegCount;
+    const uint32_t bitMask = (uint32_t)((1ULL << bitsToSort) - 1);
     for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
     {
         const uint32_t segmentStart = segments[k];
@@ -240,13 +240,15 @@ __global__ void InitRandomSegLengthRandomValue(
             z2 = TAUS_STEP_2;
             z3 = TAUS_STEP_3;
             z4 = LCG_STEP;
-            const uint32_t t = HYBRID_TAUS;
-            sort[i + segmentStart] = t;
-            payload[i + segmentStart] = t;
+            SegRandomTemplate<V>(
+                sort[i + segmentStart],
+                payload[i + segmentStart],
+                HYBRID_TAUS & bitMask);
         }
     }
 }
 
+//TODO update for > 4096
 __global__ void InitRandomSegLengthUniqueValue(
     uint32_t* sort,
     uint32_t* payload,
@@ -500,9 +502,38 @@ __global__ void ValidateInitialOneSweepState(
     }
 }
 
+template<class V>
+__device__ __forceinline__  bool SegValidateTemplate(
+    const V& x,
+    const V& y)
+{
+    //TODO ERROR ASSERT here
+}
+
+template<>
+__device__ __forceinline__ bool SegValidateTemplate<uint32_t>(
+    const uint32_t& x,
+    const uint32_t& y)
+{
+    return x > y;
+}
+
+template<>
+__device__ __forceinline__ bool SegValidateTemplate<double>(
+    const double& x,
+    const double& y)
+{
+    uint32_t u1;
+    uint32_t u2;
+    memcpy(&u1, &x, sizeof(uint32_t));
+    memcpy(&u2, &y, sizeof(uint32_t)); //Copy the lower 32 bits, which match the keys as uints
+    return u1 > u2;
+}
+
+template<class V>
 __global__ void ValidateFixLengthSegments(
     uint32_t* sort,
-    uint32_t* payload,
+    V* payload,
     uint32_t* errCount,
     uint32_t segLength,
     uint32_t totalSegCount)
@@ -515,52 +546,62 @@ __global__ void ValidateFixLengthSegments(
         const uint32_t devOffset = k * sLength;
         for (uint32_t i = threadIdx.x + 1; i < sLength; i += blockDim.x)
         {
-            if(sort[i + devOffset - 1] > sort[i + devOffset])
+            if(SegValidateTemplate<V>(sort[i + devOffset - 1], sort[i + devOffset]))
                 atomicAdd((uint32_t*)&errCount[0], 1);
 
-            if (payload[i + devOffset - 1] > payload[i + devOffset])
+            if (SegValidateTemplate<V>(payload[i + devOffset - 1], payload[i + devOffset]))
                 atomicAdd((uint32_t*)&errCount[0], 1);
         }
     }
 }
 
-__global__ void ValidateFixLengthSegments(
-    uint32_t* sort,
-    double* payload,
-    uint32_t* errCount,
-    uint32_t segLength,
-    uint32_t totalSegCount)
+//TODO could be better
+template<class V>
+__device__ __forceinline__  bool SegValidatePrintTemplate(
+    const V& x,
+    const V& y,
+    const uint32_t segIndex,
+    const uint32_t segLength,
+    const bool isKey)
 {
-    const uint32_t sCount = totalSegCount;
-    const uint32_t sLength = segLength;
-
-    for (uint32_t k = blockIdx.x; k < sCount; k += gridDim.x)
-    {
-        const uint32_t devOffset = k * sLength;
-        for (uint32_t i = threadIdx.x + 1; i < sLength; i += blockDim.x)
-        {
-            if (sort[i + devOffset - 1] > sort[i + devOffset])
-                atomicAdd((uint32_t*)&errCount[0], 1);
-
-            double d1 = payload[i + devOffset - 1];
-            double d2 = payload[i + devOffset];
-
-            uint32_t u1;
-            uint32_t u2;
-            memcpy(&u1, &d1, sizeof(uint32_t));
-            memcpy(&u2, &d2, sizeof(uint32_t)); //Copy the lower 32 bits, which match the keys as uints
-
-            //If the payloads were moved correctly,
-            //They must also be in sorted order
-            if (u1 > u2)
-                atomicAdd((uint32_t*)&errCount[0], 1);
-        }
-    }
 }
 
+template<>
+__device__ __forceinline__  bool SegValidatePrintTemplate<uint32_t>(
+    const uint32_t& x,
+    const uint32_t& y,
+    const uint32_t segIndex,
+    const uint32_t segLength,
+    const bool isKey)
+{
+    if(isKey)
+        printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n", x, y, segIndex, segLength);
+    else
+        printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n", x, y, segIndex, segLength);
+}
+
+template<>
+__device__ __forceinline__  bool SegValidatePrintTemplate<double>(
+    const double& x,
+    const double& y,
+    const uint32_t segIndex,
+    const uint32_t segLength,
+    const bool isKey)
+{
+    uint32_t u1;
+    uint32_t u2;
+    memcpy(&u1, &x, sizeof(uint32_t));
+    memcpy(&u2, &y, sizeof(uint32_t));
+    if (isKey)
+        printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n", u1, u2, segIndex, segLength);
+    else
+        printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n", u1, u2, segIndex, segLength);
+}
+
+template<class V>
 __global__ void ValidateRandomLengthSegments(
     uint32_t* sort,
-    uint32_t* payload,
+    V* payload,
     uint32_t* segments,
     uint32_t* errCount,
     uint32_t totalSegLength,
@@ -575,25 +616,22 @@ __global__ void ValidateRandomLengthSegments(
 
         for (uint32_t i = threadIdx.x + 1; i < segLength; i += blockDim.x)
         {
-            if (sort[i + segmentStart - 1] > sort[i + segmentStart])
+            const uint32_t k0 = sort[i + segmentStart - 1];
+            const uint32_t k1 = sort[i + segmentStart];
+            const V v0 = payload[i + segmentStart - 1];
+            const V v1 = payload[i + segmentStart];
+            if (SegValidateTemplate<uint32_t>(k0, k1))
             {
                 atomicAdd((uint32_t*)&errCount[0], 1);
                 if (verbose)
-                {
-                    printf("Sort error: %u %u. Segment Index: %u. Segment length %u.\n",
-                        sort[i + segmentStart - 1], sort[i + segmentStart], k, segLength);
-                    //printf("SegStart %u SegEnd %u \n", segmentStart, segmentEnd);
-                }
+                    SegValidatePrintTemplate<uint32_t>(k0, k1, k, segLength, true);
             }
                 
-            if (payload[i + segmentStart - 1] > payload[i + segmentStart])
+            if (SegValidateTemplate<V>(v0, v1))
             {
                 atomicAdd((uint32_t*)&errCount[0], 1);
                 if (verbose)
-                {
-                    printf("Payload error: %u %u. Segment Index: %u. Segment length %u.\n",
-                        payload[i + segmentStart - 1], payload[i + segmentStart], k, segLength);
-                }
+                    SegValidatePrintTemplate(v0, v1, k, segLength, false);
             }
         }
     }

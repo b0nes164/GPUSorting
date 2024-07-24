@@ -145,15 +145,20 @@ public:
         printf("Beginning Split Sort Test All Random Segment Lengths \n");
         uint32_t totalSegLength = 1 << 27;
         uint32_t testsPassed = 0;
-        uint32_t min = 16384;
-        uint32_t max = 16384;
+        uint32_t min = 1024;
+        uint32_t max = 1024;
         for (uint32_t maxSegLength = min; maxSegLength <= max; maxSegLength <<= 1)
         {
             for (uint32_t i = 0; i < testsPerSegmentLength; ++i)
             {
                 //Init
                 uint32_t segInitInfo[2];
-                DispatchInitSegmentsRandomLengthRandomValue(segInitInfo, maxSegLength, totalSegLength, i + 10);
+                DispatchInitSegmentsRandomLengthRandomValue(
+                    segInitInfo,
+                    maxSegLength,
+                    totalSegLength,
+                    BITS_TO_SORT,
+                    i + 10);
                 cudaDeviceSynchronize();
                 
                 SplitSortPairs<BITS_TO_SORT>(
@@ -164,7 +169,7 @@ public:
                     segInitInfo[0],
                     m_tempMem);
 
-                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], false); //enable for super verbose
+                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], true); //enable for super verbose
                 if (passed)
                     testsPassed++;
 
@@ -201,6 +206,7 @@ private:
         uint32_t* segInitInfo,
         const uint32_t maxSegLength,
         const uint32_t maxTotalSegLength,
+        const uint32_t bitsToSort,
         const uint32_t seed)
     {
         cudaMemset(m_segInitInfo, 0, 3 * sizeof(uint32_t));
@@ -227,8 +233,14 @@ private:
         cudaDeviceSynchronize();
         cudaFree(d_temp_storage);
 
-        InitRandomSegLengthRandomValue<<<4096, 64>>> (m_sort, m_payloads, m_segments, segInitInfo[1], segInitInfo[0], seed);
-        //InitRandomSegLengthUniqueValue<<<4096,64>>>(m_sort, m_payloads, m_segments, segInitInfo[1], segInitInfo[0], seed);
+        InitRandomSegLengthRandomValue<<<4096, 64>>>(
+            m_sort,
+            m_payloads,
+            m_segments,
+            segInitInfo[1],
+            segInitInfo[0],
+            bitsToSort,
+            seed);
     }
     
     bool ValidateBinning(

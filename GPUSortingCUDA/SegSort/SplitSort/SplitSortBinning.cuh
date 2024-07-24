@@ -131,13 +131,19 @@ namespace SplitSortInternal
                 atomicAdd((uint32_t*)&s_warpHist[8], 1);
             if (6144 < threadSegments[i] && threadSegments[i] <= 8192)
                 atomicAdd((uint32_t*)&s_warpHist[9], 1);
-
-            //if a segment is longer than 8192, we also
-            //count its length, as we will need it later
-            if (8192 < threadSegments[i])
-            {
+            if (8192 < threadSegments[i] && threadSegments[i] <= 16384)
                 atomicAdd((uint32_t*)&s_warpHist[10], 1);
-                atomicAdd((uint32_t*)&s_warpHist[11], threadSegments[i]);
+            if (16384 < threadSegments[i] && threadSegments[i] <= 32768)
+                atomicAdd((uint32_t*)&s_warpHist[11], 1);
+            if (32768 < threadSegments[i] && threadSegments[i] <= 65536)
+                atomicAdd((uint32_t*)&s_warpHist[12], 1);
+
+            //if a segment is longer than 65536, we also
+            //count its length, as we will need it later
+            if (65536 < threadSegments[i])
+            {
+                atomicAdd((uint32_t*)&s_warpHist[13], 1);
+                atomicAdd((uint32_t*)&s_warpHist[14], threadSegments[i]);
             }
                 
             //End the current bin
@@ -352,7 +358,7 @@ namespace SplitSortInternal
     //This kernel has 3 jobs:
     //1)Pack segments of length <= 32 into bins
     //2)Bin segments > 32 using Hou style approach
-    //3)Sum all segments > 8192, if any, to be used later
+    //3)Sum all segments > 65536, if any, to be used later
     template<
         uint32_t PART_SIZE,     //Size of a partition tile
         uint32_t WARPS,         //Warps in a threadblock
@@ -468,8 +474,12 @@ namespace SplitSortInternal
                 position = atomicAdd((uint32_t*)&segHist[8], 1);
             if (6144 < segLength && segLength <= 8192)
                 position = atomicAdd((uint32_t*)&segHist[9], 1);
-            if (8192 < segLength)
+            if (8192 < segLength && segLength <= 16384)
                 position = atomicAdd((uint32_t*)&segHist[10], 1);
+            if (16384 < segLength && segLength <= 32768)
+                position = atomicAdd((uint32_t*)&segHist[11], 1);
+            if (32768 < segLength && segLength <= 65536)
+                position = atomicAdd((uint32_t*)&segHist[12], 1);
 
             binOffsets[position] = segIndex;
         }
@@ -502,7 +512,7 @@ namespace SplitSortInternal
         uint32_t& segLength,
         uint32_t& reduction)
     {
-        if (segLength <= 8192)
+        if (segLength <= 65536)
             segLength = 0;
 
         const uint32_t t = segLength;
@@ -513,7 +523,7 @@ namespace SplitSortInternal
     //This kernel has 2 jobs:
     //1) bin segment lengths > 32
     //2) Track the offsets necessary to create a contiguous buffer
-    //from the segments of length > 8192
+    //from the segments of length > 65536
     template<
         uint32_t PART_SIZE,     //size of a partition tile
         uint32_t SPT,           //segments per thread
@@ -584,7 +594,7 @@ namespace SplitSortInternal
             }
         }
 
-        //Device wide prefix sum of segment lengths whose length > 8192
+        //Device wide prefix sum of segment lengths whose length > 65536
         const uint32_t warpScan = ScanAndPostStatusFlag<WARPS>(
             reduction,
             s_reduction,

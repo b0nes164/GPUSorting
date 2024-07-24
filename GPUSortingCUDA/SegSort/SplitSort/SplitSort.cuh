@@ -17,10 +17,10 @@
 #include "SplitSortVariants.cuh"
 #include "SplitSortLarge.cuh"
 
-#define SEG_INFO_SIZE           12
+#define SEG_INFO_SIZE           15
 #define SEG_HIST_SIZE           (SEG_INFO_SIZE - 1)
 #define NEXT_FIT_PART_SIZE      2048
-#define ROUND_UP_BITS_TO_SORT   ((BITS_TO_SORT >> 3) + ((BITS_TO_SORT & 7) ? 1 : 0) << 3)
+#define ROUND_UP_BITS_TO_SORT   ((BITS_TO_SORT >> 3) + ((BITS_TO_SORT & 7) ? 1 : 0) << 3)                    
 
 namespace SplitSortInternal
 {
@@ -159,7 +159,7 @@ namespace SplitSortInternal
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        if constexpr (BITS_TO_SORT > 24)    //TODO Change this back when testing complete, rebench with new granularity
+        if constexpr (BITS_TO_SORT > 24)
         {
             SplitSortBlock<4, 128, 1024, 8, 7, 7, 10, false, V>(
                 segments,
@@ -399,7 +399,7 @@ namespace SplitSortInternal
                 totalLocalLength);
         }
 
-        if (totalLocalLength > 5632 && totalLocalLength <= 6144)
+        if (totalLocalLength > 5632)
         {
             SplitSortRadixFine<16, 12, 384, 6144, ROUND_UP_BITS_TO_SORT, 256, 255, 8, V>(
                 s_mem,
@@ -450,6 +450,117 @@ namespace SplitSortInternal
                 values,
                 totalLocalLength);
         }
+    }
+
+    template<uint32_t BITS_TO_SORT, uint32_t GRID_STRIDE_LOG, class V>
+    __global__ void SortGt8192(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        V* values,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        extern __shared__ uint32_t s_mem[];
+        uint32_t totalLocalLength;
+        GetSegmentInfoRadixMerge<V, GRID_STRIDE_LOG, (1 << GRID_STRIDE_LOG) - 1, 8192>(
+            segments,
+            binOffsets,
+            sort,
+            values,
+            totalSegCount,
+            totalSegLength,
+            totalLocalLength);
+
+        if (totalLocalLength == 0)
+            return;
+
+        //Try to capture some granularity here
+        if (totalLocalLength <= 6144)
+        {
+            SplitSortRadixFine<16, 12, 384, 6144, ROUND_UP_BITS_TO_SORT, 256, 255, 8, V>(
+                &s_mem[0],
+                &s_mem[6144], //RADIX * WARPS or PART_SIZE
+                sort,
+                values,
+                totalLocalLength);
+        }
+
+        if (totalLocalLength > 6144)
+        {
+            SplitSortRadixFine<16, 16, 512, 8192, ROUND_UP_BITS_TO_SORT, 256, 255, 8, V>(
+                &s_mem[0],
+                &s_mem[8192],  //RADIX * WARPS or PART_SIZE
+                sort,
+                values,
+                totalLocalLength);
+        }
+    }
+
+    template<class V>
+    __global__ void __launch_bounds__(1024) MergeGt8192Le16384(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        V* values,
+        volatile uint32_t* index,
+        volatile uint32_t* gridLock,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        SplitSortMergeDeviceGrid<V, 8, 1, 1, 13, 14, 10>(
+            segments,
+            binOffsets,
+            sort,
+            values,
+            index,
+            gridLock,
+            totalSegCount,
+            totalSegLength);
+    }
+
+    template<class V>
+    __global__ void __launch_bounds__(1024) MergeGt16384Le32768(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        V* values,
+        volatile uint32_t* index,
+        volatile uint32_t* gridLock,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        SplitSortMergeDeviceGrid<V, 8, 2, 3, 13, 15, 10>(
+            segments,
+            binOffsets,
+            sort,
+            values,
+            index,
+            gridLock,
+            totalSegCount,
+            totalSegLength);
+    }
+
+    template<class V>
+    __global__ void __launch_bounds__(1024) MergeGt32768Le65536(
+        const uint32_t* segments,
+        const uint32_t* binOffsets,
+        uint32_t* sort,
+        V* values,
+        volatile uint32_t* index,
+        volatile uint32_t* gridLock,
+        const uint32_t totalSegCount,
+        const uint32_t totalSegLength)
+    {
+        SplitSortMergeDeviceGrid<V, 8, 3, 7, 13, 16, 10>(
+            segments,
+            binOffsets,
+            sort,
+            values,
+            index,
+            gridLock,
+            totalSegCount,
+            totalSegLength);
     }
 
     __host__ __forceinline__ uint32_t GetNextFitPartitions(uint32_t totalSegCount)
@@ -533,29 +644,11 @@ namespace SplitSortInternal
 
         cudaMemcpyAsync(segInfo, GetSegHistDevicePointer(tempMem), SEG_INFO_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
-        //If there are no segments larger than 8192, use the simple bin,
-        //Else calculate the offsets necessary to coalesce the large segments
-        //into a single contiguous buffer for fix style sorting 
-        const uint32_t k_binThreads = 256;
-        if (0 < segInfo[0] - segInfo[10])
+        //For now, if any segments of length greater than 65536
+        //are encountered, the entire segmented sort is done in place
+        if (segInfo[0] - segInfo[13] == 0)
         {
-            BinAndCoalesce<
-                NEXT_FIT_PART_SIZE, //Use same partition size to reuse partitioning calculations
-                NEXT_FIT_PART_SIZE / k_binThreads,
-                k_binThreads / LANE_COUNT,
-                k_minBinSize>
-            <<<nextFitPartitions, k_binThreads>>>(
-                segments,
-                segHistDevicePointer,
-                binOffsets,
-                GetLargeSegmentOffsetsPointer(tempMem, nextFitPartitions, totalSegCount),
-                GetAtomicIndexPointer(tempMem) + 1,
-                GetBinAndCoalesceReductionsPointer(tempMem, nextFitPartitions),
-                totalSegCount,
-                totalSegLength);
-        }
-        else
-        {
+            const uint32_t k_binThreads = 256;
             BinSimple<k_minBinSize><<<dvrup<k_binThreads>(totalSegCount), k_binThreads>>>(
                 segments,
                 segHistDevicePointer,
@@ -612,8 +705,8 @@ __host__ void SplitSortPairs(
     //    cudaStreamCreate(&stream[i]);
     
     //The segInfo contains:
-    //0 - 10:   Circularshift inclusive scan of segment bin histogram
-    //11:       The totalLength of all segments whose size is greater than 8192 
+    //0 - 13:   CircularShift inclusive scan of segment bin histogram
+    //14:       The totalLength of all segments whose size is greater than 8192 
     uint32_t segInfo[SEG_INFO_SIZE];
     const uint32_t nextFitPartitions = SplitSortInternal::GetNextFitPartitions(totalSegCount);
     uint32_t* packedSegCounts = SplitSortInternal::GetPackedSegCountsPointer(tempMem, nextFitPartitions);
@@ -630,156 +723,250 @@ __host__ void SplitSortPairs(
         totalSegLength,
         nextFitPartitions);
         
-    //Sort segments using a specialized variant for each range of seg length
-    //segHist is in circular shifted inclusive/exclusive form
-    uint32_t segsInCurBin = segInfo[1];
-    if (segsInCurBin)
+    //For now, if any segments of length greater than 65536
+    //are encountered, the entire segmented sort is done in place.
+    //In the future, we'll only do this if the majority of the
+    //segments are greater than 65536
+    //segInfo is in circular shifted inclusive/exclusive form
+    if (segInfo[0] - segInfo[13] > 0)
     {
-        SplitSortInternal::SortLe32<BITS_TO_SORT><<<SplitSortInternal::dvrup<4>(segsInCurBin), 128>>>(
+        SplitSortInternal::SplitSortLargeInPlace<V, BITS_TO_SORT>(
             segments,
-            binOffsets,
-            packedSegCounts,
             sort,
             values,
             totalSegCount,
-            totalSegLength,
-            segsInCurBin);
+            totalSegLength);
     }
+    else
+    {
+        uint32_t segsInCurBin = segInfo[1];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortLe32<BITS_TO_SORT><<<SplitSortInternal::dvrup<4>(segsInCurBin), 128>>>(
+                segments,
+                binOffsets,
+                packedSegCounts,
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength,
+                segsInCurBin);
+        }
         
-    segsInCurBin = segInfo[2] - segInfo[1];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt32Le64<BITS_TO_SORT><<<SplitSortInternal::dvrup<4>(segsInCurBin), 128>>>(
-            segments,
-            binOffsets + segInfo[1],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength,
-            segsInCurBin);
-    }
+        segsInCurBin = segInfo[2] - segInfo[1];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt32Le64<BITS_TO_SORT><<<SplitSortInternal::dvrup<4>(segsInCurBin), 128>>>(
+                segments,
+                binOffsets + segInfo[1],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength,
+                segsInCurBin);
+        }
 
-    segsInCurBin = segInfo[3] - segInfo[2];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt64Le128<BITS_TO_SORT><<<SplitSortInternal::dvrup<2>(segsInCurBin), 64>>>(
-            segments,
-            binOffsets + segInfo[2],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength,
-            segsInCurBin);
-    }
+        segsInCurBin = segInfo[3] - segInfo[2];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt64Le128<BITS_TO_SORT><<<SplitSortInternal::dvrup<2>(segsInCurBin), 64>>>(
+                segments,
+                binOffsets + segInfo[2],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength,
+                segsInCurBin);
+        }
 
-    segsInCurBin = segInfo[4] - segInfo[3];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt128Le256<BITS_TO_SORT><<<segsInCurBin, 64>>>(
-            segments,
-            binOffsets + segInfo[3],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[4] - segInfo[3];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt128Le256<BITS_TO_SORT><<<segsInCurBin, 64>>>(
+                segments,
+                binOffsets + segInfo[3],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[5] - segInfo[4];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt256Le512<BITS_TO_SORT><<<segsInCurBin, 128>>>(
-            segments,
-            binOffsets + segInfo[4],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[5] - segInfo[4];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt256Le512<BITS_TO_SORT><<<segsInCurBin, 128>>>(
+                segments,
+                binOffsets + segInfo[4],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[6] - segInfo[5];
-    if (segsInCurBin)
-    {
-        constexpr uint32_t threads = BITS_TO_SORT > 24 ? 256 : 128;
-        SplitSortInternal::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, threads>>>(
-            segments,
-            binOffsets + segInfo[5],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[6] - segInfo[5];
+        if (segsInCurBin)
+        {
+            constexpr uint32_t threads = BITS_TO_SORT > 24 ? 256 : 128;
+            SplitSortInternal::SortGt512Le1024<BITS_TO_SORT><<<segsInCurBin, threads>>>(
+                segments,
+                binOffsets + segInfo[5],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[7] - segInfo[6];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt1024Le2048<BITS_TO_SORT><<<segsInCurBin, 256>>>(
-            segments,
-            binOffsets + segInfo[6],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[7] - segInfo[6];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt1024Le2048<BITS_TO_SORT><<<segsInCurBin, 256>>>(
+                segments,
+                binOffsets + segInfo[6],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[8] - segInfo[7];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512>>>(
-            segments,
-            binOffsets + segInfo[7],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[8] - segInfo[7];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt2048Le4096<BITS_TO_SORT><<<segsInCurBin, 512>>>(
+                segments,
+                binOffsets + segInfo[7],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[9] - segInfo[8];
-    if (segsInCurBin)
-    {
-        SplitSortInternal::SortGt4096Le6144<BITS_TO_SORT><<<segsInCurBin, 512>>>(
-            segments,
-            binOffsets + segInfo[8],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[9] - segInfo[8];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::SortGt4096Le6144<BITS_TO_SORT><<<segsInCurBin, 512>>>(
+                segments,
+                binOffsets + segInfo[8],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    segsInCurBin = segInfo[10] - segInfo[9];
-    if (segsInCurBin)
-    {
-        cudaFuncSetAttribute(
-            SplitSortInternal::SortGt6144Le8192<BITS_TO_SORT, V>,
-            cudaFuncAttributeMaxDynamicSharedMemorySize,
-            65536);
-        SplitSortInternal::SortGt6144Le8192<BITS_TO_SORT, V><<<segsInCurBin, 512, 65536, 0>>>(
-            segments,
-            binOffsets + segInfo[9],
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength);
-    }
+        segsInCurBin = segInfo[10] - segInfo[9];
+        if (segsInCurBin)
+        {
+            cudaFuncSetAttribute(
+                SplitSortInternal::SortGt6144Le8192<BITS_TO_SORT, V>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                65536);
+            SplitSortInternal::SortGt6144Le8192<BITS_TO_SORT, V><<<segsInCurBin, 512, 65536, 0>>>(
+                segments,
+                binOffsets + segInfo[9],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+        }
 
-    //Because we are packing seg counts together, totalSegCount is not the total
-    //count of bins to be processed. Recall we circular shift the inclusive sum
-    //over the histogram, thus segInfo[0] is the total bin counts.
-    segsInCurBin = segInfo[0] - segInfo[10];
-    if (segsInCurBin)
-    {
-        //Still under construction
-        SplitSortInternal::SplitSortLarge<V, BITS_TO_SORT>(
-            segments,
-            binOffsets + segInfo[10],
-            SplitSortInternal::GetLargeSegmentOffsetsPointer(tempMem, nextFitPartitions, totalSegCount),
-            sort,
-            values,
-            totalSegCount,
-            totalSegLength,
-            segsInCurBin,
-            segInfo[11]);
+        segsInCurBin = segInfo[11] - segInfo[10];
+        if (segsInCurBin)
+        {
+            cudaFuncSetAttribute(
+                SplitSortInternal::SortGt8192<BITS_TO_SORT, 1, V>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                65536);
+            SplitSortInternal::SortGt8192<BITS_TO_SORT, 1, V><<<segsInCurBin * 2, 512, 65536, 0>>>(
+                segments,
+                binOffsets + segInfo[10],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+
+            uint32_t* gridLock;
+            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1)* sizeof(uint32_t));
+            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+
+            SplitSortInternal::MergeGt8192Le16384<V><<<segsInCurBin * 2, 1024>>>(
+                segments,
+                binOffsets + segInfo[10],
+                sort,
+                values,
+                gridLock,
+                gridLock + 1,
+                totalSegCount,
+                totalSegLength);
+
+            cudaFree(gridLock);
+        }
+
+        segsInCurBin = segInfo[12] - segInfo[11];
+        if (segsInCurBin)
+        {
+            cudaFuncSetAttribute(
+                SplitSortInternal::SortGt8192<BITS_TO_SORT, 2, V>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                65536);
+            SplitSortInternal::SortGt8192<BITS_TO_SORT, 2, V><<<segsInCurBin * 4, 512, 65536, 0>>>(
+                segments,
+                binOffsets + segInfo[11],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+
+            uint32_t* gridLock;
+            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+
+            SplitSortInternal::MergeGt16384Le32768<V><<<segsInCurBin * 4, 1024>>>(
+                segments,
+                binOffsets + segInfo[11],
+                sort,
+                values,
+                gridLock,
+                gridLock + 1,
+                totalSegCount,
+                totalSegLength);
+
+            cudaFree(gridLock);
+        }
+
+        segsInCurBin = segInfo[13] - segInfo[12];
+        if (segsInCurBin)
+        {
+            cudaFuncSetAttribute(
+                SplitSortInternal::SortGt8192<BITS_TO_SORT, 3, V>,
+                cudaFuncAttributeMaxDynamicSharedMemorySize,
+                65536);
+            SplitSortInternal::SortGt8192<BITS_TO_SORT, 3, V><<<segsInCurBin * 8, 512, 65536, 0>>>(
+                segments,
+                binOffsets + segInfo[12],
+                sort,
+                values,
+                totalSegCount,
+                totalSegLength);
+
+            uint32_t* gridLock;
+            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+
+            SplitSortInternal::MergeGt32768Le65536<V><<<segsInCurBin * 8, 1024>>>(
+                segments,
+                binOffsets + segInfo[12],
+                sort,
+                values,
+                gridLock,
+                gridLock + 1,
+                totalSegCount,
+                totalSegLength);
+
+            cudaFree(gridLock);
+        }
+
+        //In the future we will use the out of place method
     }
-}
+};
 
 #undef ROUND_UP_BITS_TO_SORT
 #undef NEXT_FIT_PART_SIZE
