@@ -11,6 +11,7 @@
 #pragma once
 #include <stdio.h>
 #include <stdint.h>
+#include <iostream>
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include "cub/device/device_scan.cuh"
@@ -19,6 +20,8 @@
 #include "../UtilityKernels.cuh"
 
 #define SEG_INFO_SIZE 15
+#define CUDA_CHECK(_e, _s) if(_e != cudaSuccess) { \
+        std::cout << "CUDA error (" << _s << "): " << cudaGetErrorString(_e) << std::endl; }
 
 template<class K>
 class SplitSortTests
@@ -51,7 +54,14 @@ public:
         cudaMalloc(&m_segInfoValidate, SEG_INFO_SIZE * sizeof(uint32_t));
         cudaMalloc(&m_errCount, sizeof(uint32_t));
 
+        cudaError_t cuda_err;
+        cuda_err = cudaGetLastError();
+        CUDA_CHECK(cuda_err, "Initial malloc");
+
         SplitSortAllocateTempMemory(k_maxTotalLength, k_maxTotalSegCount, m_tempMem);
+
+        cuda_err = cudaGetLastError();
+        CUDA_CHECK(cuda_err, "SplitSort malloc");
     }
 
     ~SplitSortTests()
@@ -64,9 +74,12 @@ public:
         cudaFree(m_errCount);
 
         SplitSortFreeTempMemory(m_tempMem);
+
+        cudaError_t cuda_err;
+        cuda_err = cudaGetLastError();
+        CUDA_CHECK(cuda_err, "mem free");
     }
 
-    //TODO reexamine this test to ensure nothing broke
     void TestBinningRandomSegLength(
         const uint32_t testCount,
         const uint32_t maxSegLength,
@@ -75,7 +88,13 @@ public:
     {
         if (k_maxTotalLength < (1 << 27))
         {
-            printf("Error TestBinningRandomSegLength requires at least 1 << 27 allocated sort memory. \n");
+            printf("Error TestBinningRandomSegLength requires at least 1 << 27 allocated sort memory.\n");
+            return;
+        }
+
+        if (maxSegLength > 65536)
+        {
+            printf("Warning, currently a segment length greater than 65536 will skip binning, exiting.\n");
             return;
         }
 
@@ -84,7 +103,7 @@ public:
         {
             //Init
             uint32_t segInitInfo[2];
-            DispatchInitSegmentsRandomLengthRandomValue(segInitInfo, maxSegLength, totalSegLength, i + 10);
+            DispatchInitSegmentsRandomLengthRandomValue(segInitInfo, maxSegLength, totalSegLength, 32, i + 10);
             cudaDeviceSynchronize();
 
             uint32_t segInfo[SEG_INFO_SIZE];
@@ -103,7 +122,7 @@ public:
             cudaMemcpy(m_segInfoValidate, segInfo, SEG_INFO_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice);
             cudaDeviceSynchronize();
 
-            bool passed = ValidateBinning(segInitInfo[1], segInitInfo[0], segInfo[0], false); //Enable for super verbose
+            bool passed = ValidateBinning(segInitInfo[1], segInitInfo[0], segInfo[0], true); //Enable for super verbose
             if (passed)
                 testsPassed++;
 
@@ -120,6 +139,10 @@ public:
                 if ((i & 15) == 0)
                     printf(". ");
             }
+
+            cudaError_t cuda_err;
+            cuda_err = cudaGetLastError();
+            CUDA_CHECK(cuda_err, "Binning");
         }
 
         if (testsPassed == testCount)
@@ -129,20 +152,20 @@ public:
     }
 
     template<uint32_t BITS_TO_SORT>
-    void TestRandomSegmentLengths(
+    void FastTestRandomSegmentLengths(
         uint32_t testsPerSegmentLength,
         uint32_t minLogTwo,
         uint32_t maxLogTwo,
         uint32_t totalSegLength,
         bool verbose)
     {
-        if (k_maxTotalLength < (1 << 24) || k_maxTotalSegCount < (1 << 24))
+        if (k_maxTotalSegCount < (totalSegLength >> minLogTwo)) //Too many segments
         {
-            printf("Error, allocate more memory :) \n");
+            printf("Error, allocate more memory\n");
             return;
         }
 
-        printf("Beginning Split Sort Test All Random Segment Lengths \n");
+        printf("Beginning Split Sort Fast Test Random Segment Lengths \n");
         uint32_t testsPassed = 0;
         for (uint32_t maxSegLengthLog = minLogTwo; maxSegLengthLog <= maxLogTwo; ++maxSegLengthLog)
         {
@@ -186,28 +209,31 @@ public:
                     if ((i & 15) == 0)
                         printf(". ");
                 }
-                cudaDeviceSynchronize();
+
+                cudaError_t cuda_err;
+                cuda_err = cudaGetLastError();
+                CUDA_CHECK(cuda_err, "Fast Test Random Lengths");
             }
         }
 
         const uint32_t testsExpected = (maxLogTwo - minLogTwo + 1) * testsPerSegmentLength;
         if (testsPassed == testsExpected)
-            printf("\nSPLIT SORT ALL RANDOM SEG LENGTHS TESTS PASSED \n");
+            printf("\nSPLIT SORT FAST RANDOM SEG LENGTHS TESTS PASSED \n");
         else
-            printf("\nSPLIT SORT RANDOM LENGTH TESTS FAILED %u / %u. \n", testsPassed, testsExpected);
+            printf("\nSPLIT SORT FAST RANDOM LENGTH TESTS FAILED %u / %u. \n", testsPassed, testsExpected);
     }
 
     template<uint32_t BITS_TO_SORT>
-    void SanityTestRandomSegmentLengths(
+    void FullTestRandomSegmentLengths(
         uint32_t testsPerSegmentLength,
         uint32_t minLogTwo,
         uint32_t maxLogTwo,
         uint32_t totalSegLength,
         bool verbose)
     {
-        if (k_maxTotalLength < (1 << 27))
+        if (k_maxTotalSegCount < (totalSegLength >> minLogTwo)) //Too many segments
         {
-            printf("Error, allocate more memory :) \n");
+            printf("Error, allocate more memory\n");
             return;
         }
 
@@ -216,7 +242,7 @@ public:
         cudaMalloc(&sortCopy, k_maxTotalLength * sizeof(uint32_t));
         cudaMalloc(&payloadCopy, k_maxTotalLength * sizeof(K));
 
-        printf("Beginning Split Sort Test All Random Segment Lengths \n");
+        printf("Beginning Split Sort Full Test Random Segment Lengths \n");
         uint32_t testsPassed = 0;
         for (uint32_t maxSegLengthLog = minLogTwo; maxSegLengthLog <= maxLogTwo; ++maxSegLengthLog)
         {
@@ -262,7 +288,7 @@ public:
                     segInitInfo[0],
                     m_tempMem);
 
-                bool passed = ValidateSanity(sortCopy, payloadCopy, segInitInfo[1]);
+                bool passed = ValidateFull(sortCopy, payloadCopy, segInitInfo[1]);
 
                 if (passed)
                     testsPassed++;
@@ -280,22 +306,25 @@ public:
                     if ((i & 15) == 0)
                         printf(". ");
                 }
-                cudaDeviceSynchronize();
+                
+                cudaError_t cuda_err;
+                cuda_err = cudaGetLastError();
+                CUDA_CHECK(cuda_err, "Full Test Random Lengths");
             }
         }
 
         const uint32_t testsExpected = (maxLogTwo - minLogTwo + 1) * testsPerSegmentLength;
         if (testsPassed == testsExpected)
-            printf("\nSPLIT SORT SANITY TESTS PASSED \n");
+            printf("\nSPLIT SORT FULL TESTS PASSED \n");
         else
-            printf("\nSPLIT SORT SANITY ESTS FAILED %u / %u. \n", testsPassed, testsExpected);
+            printf("\nSPLIT SORT FULL TESTS FAILED %u / %u. \n", testsPassed, testsExpected);
 
         cudaFree(sortCopy);
         cudaFree(payloadCopy);
     }
 
     template<uint32_t BITS_TO_SORT>
-    void TestFixedSegmentLength(
+    void FastTestFixedSegmentLength(
         uint32_t testsToRun,
         uint32_t segmentLength,
         uint32_t segmentCount,
@@ -307,7 +336,7 @@ public:
             return;
         }
 
-        printf("Beginning Split Sort: BitsToSort: %u SegmentCount: %u SegmentLength: %u TotalSegmentLength: %u \n",
+        printf("Beginning Fast Fixed Length Test: BitsToSort: %u SegmentCount: %u SegmentLength: %u TotalSegmentLength: %u \n",
             BITS_TO_SORT, segmentCount, segmentLength, segmentCount * segmentLength);
         uint32_t testsPassed = 0;
         for (uint32_t i = 0; i < testsToRun; ++i)
@@ -349,52 +378,150 @@ public:
                 if ((i & 15) == 0)
                     printf(". ");
             }
-            cudaDeviceSynchronize();
+            
+            cudaError_t cuda_err;
+            cuda_err = cudaGetLastError();
+            CUDA_CHECK(cuda_err, "Fast Fixed Test Random Lengths");
         }
 
         if (testsPassed == testsToRun)
-            printf("\nSPLIT SORT ALL FIXED SEG LENGTHS TESTS PASSED \n");
+            printf("\nSPLIT SORT FAST FIXED LENGTH TESTS PASSED \n");
         else
-            printf("\nSPLIT SORT FIXED LENGTH TESTS FAILED %u / %u. \n", testsPassed, testsToRun);
+            printf("\nSPLIT SORT FAST FIXED LENGTH TESTS FAILED %u / %u. \n", testsPassed, testsToRun);
     }
 
-    void MegaTest()
+    template<uint32_t BITS_TO_SORT>
+    void FullTestFixedSegmentLength(
+        uint32_t testsToRun,
+        uint32_t segmentLength,
+        uint32_t segmentCount,
+        bool verbose)
+    {
+        if (k_maxTotalLength < segmentLength * segmentCount || k_maxTotalSegCount < segmentCount + 1)
+        {
+            printf("Error allocate more memory\n");
+            return;
+        }
+
+        uint32_t* sortCopy;
+        K* payloadCopy;
+        cudaMalloc(&sortCopy, k_maxTotalLength * sizeof(uint32_t));
+        cudaMalloc(&payloadCopy, k_maxTotalLength * sizeof(K));
+        const uint32_t totalSegLength = segmentCount * segmentLength;
+
+        printf("Beginning Full Fixed Length Test: BitsToSort: %u SegmentCount: %u SegmentLength: %u TotalSegmentLength: %u \n",
+            BITS_TO_SORT, segmentCount, segmentLength, totalSegLength);
+
+        uint32_t testsPassed = 0;
+        for (uint32_t i = 0; i < testsToRun; ++i)
+        {
+            InitSegLengthsFixed<<<256, 256>>>(
+                m_segments,
+                segmentCount + 1,   //For CUB
+                segmentLength);
+            InitFixedSegLengthRandomValue<<<4096, 64>>>(
+                m_sort,
+                m_payloads,
+                segmentLength,
+                segmentCount,
+                BITS_TO_SORT,
+                i + 10);
+            cudaDeviceSynchronize();
+
+            cudaMemcpy(sortCopy, m_sort, totalSegLength * sizeof(uint32_t), cudaMemcpyDeviceToDevice);
+            cudaMemcpy(payloadCopy, m_payloads, totalSegLength * sizeof(K), cudaMemcpyDeviceToDevice);
+            cudaDeviceSynchronize();
+
+            //DISPATCH CUB
+            void* d_temp_storage = NULL;
+            size_t temp_storage_bytes = 0;
+            cub::DeviceSegmentedSort::SortPairs(
+                d_temp_storage, temp_storage_bytes,
+                sortCopy, sortCopy, payloadCopy, payloadCopy,
+                totalSegLength, segmentCount, m_segments, m_segments + 1);
+            cudaMalloc(&d_temp_storage, temp_storage_bytes);
+            cub::DeviceSegmentedSort::SortPairs(
+                d_temp_storage, temp_storage_bytes,
+                sortCopy, sortCopy, payloadCopy, payloadCopy,
+                totalSegLength, segmentCount, m_segments, m_segments + 1);
+            cudaFree(d_temp_storage);
+
+            SplitSortPairs<BITS_TO_SORT>(
+                m_segments,
+                m_sort,
+                m_payloads,
+                segmentCount,
+                totalSegLength,
+                m_tempMem);
+
+            bool passed = ValidateFull(sortCopy, payloadCopy, totalSegLength);
+            if (passed)
+                testsPassed++;
+
+            if (verbose)
+            {
+                if (passed)
+                    printf("Test passed.\n");
+                else
+                    printf("Test failed.\n");
+            }
+            else
+            {
+                if ((i & 15) == 0)
+                    printf(". ");
+            }
+            
+            cudaError_t cuda_err;
+            cuda_err = cudaGetLastError();
+            CUDA_CHECK(cuda_err, "Full Fixed Test Random Lengths");
+        }
+
+        if (testsPassed == testsToRun)
+            printf("\nSPLIT SORT FULL FIXED LENGTH TESTS PASSED \n");
+        else
+            printf("\nSPLIT SORT FULL FIXED LENGTH TESTS FAILED %u / %u. \n", testsPassed, testsToRun);
+
+        cudaFree(sortCopy);
+        cudaFree(payloadCopy);
+    }
+
+    void FastMegaTest()
     {
         //Due to extensive use of templating, this significantly
         //increases compile times. Uncomment to enable
         /*
-        TestRandomSegmentLengths<4>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<8>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<12>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<16>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<20>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<24>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<28>(100, 2, 18, 1 << 22, false);
-        TestRandomSegmentLengths<32>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<4>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<8>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<12>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<16>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<20>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<24>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<28>(100, 2, 18, 1 << 22, false);
+        FastTestRandomSegmentLengths<32>(100, 2, 18, 1 << 22, false);
 
         //Test the in place OneSweep
         //1 radix pass
-        TestFixedSegmentLength<4>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<4>(50, 1 << 21, 15, false);
 
         //2 radix pass
-        TestFixedSegmentLength<8>(50, 1 << 21, 15, false);
-        TestFixedSegmentLength<12>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<8>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<12>(50, 1 << 21, 15, false);
 
         //3 radix passes
-        TestFixedSegmentLength<16>(50, 1 << 21, 15, false);
-        TestFixedSegmentLength<20>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<16>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<20>(50, 1 << 21, 15, false);
 
         //4 radix passes
-        TestFixedSegmentLength<24>(50, 1 << 21, 15, false);
-        TestFixedSegmentLength<28>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<24>(50, 1 << 21, 15, false);
+        FastTestFixedSegmentLength<28>(50, 1 << 21, 15, false);
 
         //5 radix passes
-        TestFixedSegmentLength<32>(50, 1 << 17, 15, false);
-        TestFixedSegmentLength<32>(50, 1 << 17, 255, false);
-
+        FastTestFixedSegmentLength<32>(50, 1 << 17, 15, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 17, 255, false);
+        
         //6 radix passes
-        TestFixedSegmentLength<32>(50, 1 << 17, 512, false);
-        TestFixedSegmentLength<32>(50, 1 << 17, 1024, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 17, 512, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 17, 1024, false);
         */
     }
 
@@ -402,16 +529,44 @@ public:
     //Then, check if we exactly match CUB. The method of checking used above
     //will not catch some errors (all 0's for example, or a no write), so 
     //we implement this test as well
-    void SanityTest()
+    void FullMegaTest()
     {
-        SanityTestRandomSegmentLengths<4>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<8>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<12>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<16>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<20>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<24>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<28>(100, 2, 18, 1 << 22, false);
-        SanityTestRandomSegmentLengths<32>(100, 2, 18, 1 << 22, false);
+        //Due to extensive use of templating, this significantly
+        //increases compile times. Uncomment to enable
+        /*
+        FullTestRandomSegmentLengths<4>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<8>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<12>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<16>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<20>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<24>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<28>(100, 2, 18, 1 << 22, false);
+        FullTestRandomSegmentLengths<32>(100, 2, 18, 1 << 22, false);
+
+        //Test the in place OneSweep
+        //1 radix pass
+        FullTestFixedSegmentLength<4>(50, 1 << 21, 15, false);
+
+        //2 radix pass
+        FullTestFixedSegmentLength<8>(50, 1 << 21, 15, false);
+        FullTestFixedSegmentLength<12>(50, 1 << 21, 15, false);
+
+        //3 radix passes
+        FullTestFixedSegmentLength<16>(50, 1 << 21, 15, false);
+        FullTestFixedSegmentLength<20>(50, 1 << 21, 15, false);
+
+        //4 radix passes
+        FullTestFixedSegmentLength<24>(50, 1 << 21, 15, false);
+        FullTestFixedSegmentLength<28>(50, 1 << 21, 15, false);
+
+        //5 radix passes
+        FullTestFixedSegmentLength<32>(50, 1 << 17, 15, false);
+        FullTestFixedSegmentLength<32>(50, 1 << 17, 255, false);
+
+        //6 radix passes
+        FullTestFixedSegmentLength<32>(50, 1 << 17, 512, false);
+        FullTestFixedSegmentLength<32>(50, 1 << 17, 1024, false);
+        */
     }
 
 private:
@@ -438,7 +593,7 @@ private:
         cudaMemcpy(segInitInfo, m_segInitInfo, 2 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
         cudaDeviceSynchronize();
 
-        if (segInitInfo[1] + 1 > k_maxTotalSegCount || segInitInfo[0] > k_maxTotalLength)
+        if (segInitInfo[0] > k_maxTotalLength)  //Total segment length too long
         {
             printf("Error allocate more memory\n");
             return true;
@@ -516,7 +671,7 @@ private:
         return !errCount[0];
     }
 
-    bool ValidateSanity(
+    bool ValidateFull(
         uint32_t* sortCopy,
         K* payloadCopy,
         uint32_t totalSegLength)
@@ -529,7 +684,7 @@ private:
             sortCopy,
             m_payloads,
             payloadCopy,
-            errCount,
+            m_errCount,
             totalSegLength);
         cudaDeviceSynchronize();
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
@@ -538,172 +693,5 @@ private:
     }
 };
 
+#undef CUDA_CHECK
 #undef SEG_INFO_SIZE
-
-/*
-void BatchTimeFixedSegmentLength(
-        uint32_t batchCount,
-        uint32_t totalSegCount,
-        uint32_t segLength)
-    {
-        if (totalSegCount > k_maxSegments)
-        {
-            printf("Error seg count exceed max allocated memory. \n");
-            return;
-        }
-
-        if (totalSegCount * segLength > k_maxSize)
-        {
-            printf("Error sort size exceeds max allocated memory. \n");
-            return;
-        }
-
-        printf("Beginning Split Sort Pairs Fixed Seg Length Batch Timing: \n");
-        cudaEvent_t start;
-        cudaEvent_t stop;
-        cudaEventCreate(&start);
-        cudaEventCreate(&stop);
-
-        float totalTime = 0.0f;
-        for (uint32_t i = 0; i <= batchCount; ++i)
-        {
-            InitSegLengthsFixed << <256, 256 >> > (m_segments, totalSegCount, segLength);
-            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_sort, segLength, totalSegCount);
-            //InitFixedSegLengthDescendingValue<<<1024, 64>>>(m_payloads, segLength, totalSegCount);
-            InitFixedSegLengthRandomValue << <1024, 64 >> > (m_sort, m_payloads, segLength, totalSegCount, i + 10);
-            cudaDeviceSynchronize();
-            cudaEventRecord(start);
-            DispatchSplitSortPairs<32>(totalSegCount, totalSegCount * segLength);
-            cudaEventRecord(stop);
-            cudaEventSynchronize(stop);
-
-            float millis;
-            cudaEventElapsedTime(&millis, start, stop);
-            if (i)
-                totalTime += millis;
-
-            if ((i & 15) == 0)
-                printf(". ");
-        }
-
-        totalTime /= 1000.0f;
-        uint32_t size = totalSegCount * segLength;
-
-        printf("\n");
-        printf("Total time elapsed: %f\n", totalTime);
-        printf("Estimated speed at %u 32-bit elements: %E pairs/sec\n\n", size, size / totalTime * batchCount);
-    }
-
-    template<uint32_t BITS_TO_SORT>
-    void TestAllFixedSegmentLengths(uint32_t testsPerSegmentLength)
-    {
-        if (k_maxSize < (1 << 27))
-        {
-            printf("Error fixed segment length test requires 2^27 allocated sort memory. \n");
-            return;
-        }
-
-        if (!testsPerSegmentLength)
-        {
-            printf("Error at least one test is required at each segment length. \n");
-            return;
-        }
-
-        const uint32_t segCount = 1 << 13;
-        printf("Beginning Split Sort Test All Fixed Segment Lengths 1 - 4096 \n");
-
-        uint32_t testsPassed = 0;
-        for (uint32_t segLength = 1; segLength <= 4096; ++segLength)
-        {
-            for (uint32_t i = 0; i < testsPerSegmentLength; ++i)
-            {
-                InitSegLengthsFixed << <256, 256 >> > (m_segments, segCount, segLength);
-                InitFixedSegLengthRandomValue << <1024, 64 >> > (m_sort, m_payloads, segLength, segCount, i + 10);
-                DispatchSplitSortPairs<BITS_TO_SORT>(segCount, segLength * segCount);
-                if (ValidateSegSortFixedLength(segCount, segLength, false))
-                    testsPassed++;
-                else
-                    printf("Test failed at fixed seg length: %u \n", segLength);
-            }
-
-            if ((segLength & 63) == 0)
-                printf(". ");
-        }
-
-        const uint32_t testsExpected = 4096 * testsPerSegmentLength;
-        if (testsPassed == testsExpected)
-            printf("SPLIT SORT ALL FIXED SEG LENGTHS TESTS PASSED \n");
-        else
-            printf("SPLIT SORT FIXED SEG LENGTH TESTS FAILED. \n");
-    }
-
-    void BatchTimeRandomSegmentLength(
-        uint32_t batchCount,
-        uint32_t size,
-        uint32_t maxSegLength)
-    {
-        if (size > k_maxSize || size > k_maxSegments)
-        {
-            printf("Error, allocate more memory :) \n");
-            return;
-        }
-
-        printf("Beginning Split Sort Pairs Random Seg Length Batch Timing: \n");
-        cudaEvent_t start;
-        cudaEvent_t stop;
-        cudaEventCreate(&start);
-        cudaEventCreate(&stop);
-
-        float totalTime = 0.0f;
-        uint64_t totalSize = 0;
-        for (uint32_t i = 0; i <= batchCount; ++i)
-        {
-            //Init
-            uint32_t segInfo[3];
-            cudaMemset(m_totalLength, 0, 3 * sizeof(uint32_t));
-            cudaDeviceSynchronize();
-            InitSegLengthsRandom << <4096, 64 >> > (m_segments, m_totalLength, i + 10, size, maxSegLength);
-            cudaDeviceSynchronize();
-            cudaMemcpy(&segInfo, m_totalLength, 3 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
-            cudaDeviceSynchronize();
-            void* d_temp_storage = NULL;
-            size_t  temp_storage_bytes = 0;
-            cub::DeviceScan::ExclusiveSum(
-                d_temp_storage, temp_storage_bytes,
-                m_segments, m_segments, segInfo[1]);
-            cudaMalloc(&d_temp_storage, temp_storage_bytes);
-            cub::DeviceScan::ExclusiveSum(
-                d_temp_storage, temp_storage_bytes,
-                m_segments, m_segments, segInfo[1]);
-            cudaDeviceSynchronize();
-            cudaFree(d_temp_storage);
-            InitRandomSegLengthRandomValue << <4096, 64 >> > (m_sort, m_payloads, m_segments, segInfo[1], segInfo[0], i + 10);
-            //InitRandomSegLengthUniqueValue<<<4096,64>>>(m_sort, m_payloads, m_segments, segInfo[1], segInfo[0], i + 10);
-
-            cudaDeviceSynchronize();
-            cudaEventRecord(start);
-            DispatchSplitSortPairs<32>(segInfo[1], segInfo[0]);
-            cudaEventRecord(stop);
-            cudaEventSynchronize(stop);
-            cudaDeviceSynchronize();
-
-            float millis;
-            cudaEventElapsedTime(&millis, start, stop);
-            if (i)
-            {
-                totalTime += millis;
-                totalSize += segInfo[0];
-            }
-
-            if ((i & 15) == 0)
-                printf(". ");
-        }
-
-        totalTime /= 1000.0f;
-        double tSize = totalSize;
-        tSize /= (double)batchCount;
-        printf("\n");
-        printf("Total time elapsed: %f\n", totalTime);
-        printf("Estimated speed at %u 32-bit elements: %E pairs/sec\n\n", (uint32_t)tSize, tSize / totalTime * batchCount);
-    }
-*/

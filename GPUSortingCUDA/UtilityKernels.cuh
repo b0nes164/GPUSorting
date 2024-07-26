@@ -655,9 +655,8 @@ __global__ void ValidateSegSortSanity(
     }
 }
 
-//Is the packing good?
+//Is the packing correct?
 //Are the segments in the right bins?
-//TODO update for new larger bins
 __global__ void ValidateBinningRandomSegLengths(
     uint32_t* segments,
     uint32_t* binOffsets,
@@ -813,12 +812,42 @@ __global__ void ValidateBinningRandomSegLengths(
                 }
             }
 
-            if (i >= segHist[10])
+            if (i >= segHist[10] && i < segHist[11])
             {
-                if (segLength <= 8192)
+                if (segLength <= 8192 || segLength > 16384)
                 {
                     if (verbose)
-                        printf("%u Error SegLength %u in interval 8192+\n", i, segLength);
+                        printf("Error SegLength %u in interval 8192-16384\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[11] && i < segHist[12])
+            {
+                if (segLength <= 16384 || segLength > 32768)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 16384-32768\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[12] && i < segHist[13])
+            {
+                if (segLength <= 32768 || segLength > 65536)
+                {
+                    if (verbose)
+                        printf("Error SegLength %u in interval 32768-65536\n", segLength);
+                    atomicAdd((uint32_t*)&errCount[0], 1);
+                }
+            }
+
+            if (i >= segHist[13])
+            {
+                if (segLength <= 65536)
+                {
+                    if (verbose)
+                        printf("%u Error SegLength %u in interval 65536+\n", i, segLength);
                     atomicAdd((uint32_t*)&errCount[0], 1);
                 }
             }
