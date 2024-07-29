@@ -17,7 +17,7 @@
 #include "SplitSortVariants.cuh"
 #include "SplitSortLarge.cuh"
 
-#define SEG_INFO_SIZE           15
+#define SEG_INFO_SIZE           16
 #define SEG_HIST_SIZE           (SEG_INFO_SIZE - 1)
 #define NEXT_FIT_PART_SIZE      2048
 #define ROUND_UP_BITS_TO_SORT   ((BITS_TO_SORT >> 3) + ((BITS_TO_SORT & 7) ? 1 : 0) << 3)                    
@@ -227,7 +227,7 @@ namespace SplitSortInternal
 
     //w1_t256_kv2048_radix
     template<uint32_t BITS_TO_SORT, class V>
-    __global__ void SortGt1024Le2048(
+    __global__ void __launch_bounds__(256) SortGt1024Le2048(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
@@ -453,7 +453,7 @@ namespace SplitSortInternal
     }
 
     template<uint32_t BITS_TO_SORT, uint32_t GRID_STRIDE_LOG, class V>
-    __global__ void SortGt8192(
+    __global__ void __launch_bounds__(512) SortGt8192(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
@@ -497,8 +497,8 @@ namespace SplitSortInternal
         }
     }
 
-    template<class V>
-    __global__ void __launch_bounds__(1024) MergeGt8192Le16384(
+    template<class V, uint32_t START_LOG, uint32_t END_LOG, uint32_t GRID_STRIDE_LOG>
+    __global__ void __launch_bounds__(1024) MergeGt8192(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
@@ -508,7 +508,7 @@ namespace SplitSortInternal
         const uint32_t totalSegCount,
         const uint32_t totalSegLength)
     {
-        SplitSortMergeDeviceGrid<V, 8, 1, 1, 13, 14, 10>(
+        SplitSortMergeDeviceGrid<V, 8, GRID_STRIDE_LOG, (1 << GRID_STRIDE_LOG) - 1, START_LOG, END_LOG, 10>(
             segments,
             binOffsets,
             sort,
@@ -519,48 +519,57 @@ namespace SplitSortInternal
             totalSegLength);
     }
 
-    template<class V>
-    __global__ void __launch_bounds__(1024) MergeGt16384Le32768(
+    template<
+        class V,
+        uint32_t BITS_TO_SORT,
+        uint32_t START_LOG,
+        uint32_t END_LOG,
+        uint32_t GRID_STRIDE_LOG>
+    __host__ void DispatchGt8192(
         const uint32_t* segments,
         const uint32_t* binOffsets,
         uint32_t* sort,
         V* values,
-        volatile uint32_t* index,
-        volatile uint32_t* gridLock,
         const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
+        const uint32_t totalSegLength,
+        const uint32_t segsInCurBin)
     {
-        SplitSortMergeDeviceGrid<V, 8, 2, 3, 13, 15, 10>(
+        cudaFuncSetAttribute(
+            SplitSortInternal::SortGt8192<BITS_TO_SORT, GRID_STRIDE_LOG, V>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            65536);
+        SplitSortInternal::SortGt8192<
+            BITS_TO_SORT,
+            GRID_STRIDE_LOG,
+            V>
+        <<<(segsInCurBin << GRID_STRIDE_LOG), 512, 65536, 0>>>(
             segments,
             binOffsets,
             sort,
             values,
-            index,
-            gridLock,
             totalSegCount,
             totalSegLength);
-    }
 
-    template<class V>
-    __global__ void __launch_bounds__(1024) MergeGt32768Le65536(
-        const uint32_t* segments,
-        const uint32_t* binOffsets,
-        uint32_t* sort,
-        V* values,
-        volatile uint32_t* index,
-        volatile uint32_t* gridLock,
-        const uint32_t totalSegCount,
-        const uint32_t totalSegLength)
-    {
-        SplitSortMergeDeviceGrid<V, 8, 3, 7, 13, 16, 10>(
+        uint32_t* gridLock;
+        cudaMalloc(&gridLock, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+        cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
+
+        SplitSortInternal::MergeGt8192<
+            V,
+            START_LOG,
+            END_LOG,
+            GRID_STRIDE_LOG>
+        <<<(segsInCurBin << GRID_STRIDE_LOG), 1024>>>(
             segments,
             binOffsets,
             sort,
             values,
-            index,
             gridLock,
+            gridLock + 1,
             totalSegCount,
             totalSegLength);
+
+        cudaFree(gridLock);
     }
 
     __host__ __forceinline__ uint32_t GetNextFitPartitions(uint32_t totalSegCount)
@@ -646,7 +655,7 @@ namespace SplitSortInternal
 
         //For now, if any segments of length greater than 65536
         //are encountered, the entire segmented sort is done in place
-        if (segInfo[0] - segInfo[13] == 0)
+        if (segInfo[0] - segInfo[SEG_INFO_SIZE - 2] == 0)
         {
             const uint32_t k_binThreads = 256;
             BinSimple<k_minBinSize><<<dvrup<k_binThreads>(totalSegCount), k_binThreads>>>(
@@ -728,7 +737,7 @@ __host__ void SplitSortPairs(
     //In the future, we'll only do this if the majority of the
     //segments are greater than 65536
     //segInfo is in circular shifted inclusive/exclusive form
-    if (segInfo[0] - segInfo[13] > 0)
+    if (segInfo[0] - segInfo[SEG_INFO_SIZE - 2] > 0)
     {
         SplitSortInternal::SplitSortLargeInPlace<V, BITS_TO_SORT>(
             segments,
@@ -871,97 +880,53 @@ __host__ void SplitSortPairs(
         segsInCurBin = segInfo[11] - segInfo[10];
         if (segsInCurBin)
         {
-            cudaFuncSetAttribute(
-                SplitSortInternal::SortGt8192<BITS_TO_SORT, 1, V>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                65536);
-            SplitSortInternal::SortGt8192<BITS_TO_SORT, 1, V><<<segsInCurBin * 2, 512, 65536, 0>>>(
+            SplitSortInternal::DispatchGt8192<V, BITS_TO_SORT, 13, 14, 1>(
                 segments,
                 binOffsets + segInfo[10],
                 sort,
                 values,
                 totalSegCount,
-                totalSegLength);
-
-            uint32_t* gridLock;
-            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1)* sizeof(uint32_t));
-            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
-
-            SplitSortInternal::MergeGt8192Le16384<V><<<segsInCurBin * 2, 1024>>>(
-                segments,
-                binOffsets + segInfo[10],
-                sort,
-                values,
-                gridLock,
-                gridLock + 1,
-                totalSegCount,
-                totalSegLength);
-
-            cudaFree(gridLock);
+                totalSegLength,
+                segsInCurBin);
         }
 
         segsInCurBin = segInfo[12] - segInfo[11];
         if (segsInCurBin)
         {
-            cudaFuncSetAttribute(
-                SplitSortInternal::SortGt8192<BITS_TO_SORT, 2, V>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                65536);
-            SplitSortInternal::SortGt8192<BITS_TO_SORT, 2, V><<<segsInCurBin * 4, 512, 65536, 0>>>(
+            SplitSortInternal::DispatchGt8192<V, BITS_TO_SORT, 13, 15, 2>(
                 segments,
                 binOffsets + segInfo[11],
                 sort,
                 values,
                 totalSegCount,
-                totalSegLength);
-
-            uint32_t* gridLock;
-            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
-            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
-
-            SplitSortInternal::MergeGt16384Le32768<V><<<segsInCurBin * 4, 1024>>>(
-                segments,
-                binOffsets + segInfo[11],
-                sort,
-                values,
-                gridLock,
-                gridLock + 1,
-                totalSegCount,
-                totalSegLength);
-
-            cudaFree(gridLock);
+                totalSegLength,
+                segsInCurBin);
         }
 
         segsInCurBin = segInfo[13] - segInfo[12];
         if (segsInCurBin)
         {
-            cudaFuncSetAttribute(
-                SplitSortInternal::SortGt8192<BITS_TO_SORT, 3, V>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                65536);
-            SplitSortInternal::SortGt8192<BITS_TO_SORT, 3, V><<<segsInCurBin * 8, 512, 65536, 0>>>(
+            SplitSortInternal::DispatchGt8192<V, BITS_TO_SORT, 13, 16, 3>(
                 segments,
                 binOffsets + segInfo[12],
                 sort,
                 values,
                 totalSegCount,
-                totalSegLength);
+                totalSegLength,
+                segsInCurBin);
+        }
 
-            uint32_t* gridLock;
-            cudaMalloc(&gridLock, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
-            cudaMemset(gridLock, 0, (segsInCurBin * 2 + 1) * sizeof(uint32_t));
-
-            SplitSortInternal::MergeGt32768Le65536<V><<<segsInCurBin * 8, 1024>>>(
+        segsInCurBin = segInfo[14] - segInfo[13];
+        if (segsInCurBin)
+        {
+            SplitSortInternal::DispatchGt8192<V, BITS_TO_SORT, 13, 17, 4>(
                 segments,
-                binOffsets + segInfo[12],
+                binOffsets + segInfo[13],
                 sort,
                 values,
-                gridLock,
-                gridLock + 1,
                 totalSegCount,
-                totalSegLength);
-
-            cudaFree(gridLock);
+                totalSegLength,
+                segsInCurBin);
         }
 
         //In the future we will use the out of place method

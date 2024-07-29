@@ -137,13 +137,15 @@ namespace SplitSortInternal
                 atomicAdd((uint32_t*)&s_warpHist[11], 1);
             if (32768 < threadSegments[i] && threadSegments[i] <= 65536)
                 atomicAdd((uint32_t*)&s_warpHist[12], 1);
+            if (65536 < threadSegments[i] && threadSegments[i] <= 131072)
+                atomicAdd((uint32_t*)&s_warpHist[13], 1);
 
             //if a segment is longer than 65536, we also
             //count its length, as we will need it later
-            if (65536 < threadSegments[i])
+            if (131072 < threadSegments[i])
             {
-                atomicAdd((uint32_t*)&s_warpHist[13], 1);
-                atomicAdd((uint32_t*)&s_warpHist[14], threadSegments[i]);
+                atomicAdd((uint32_t*)&s_warpHist[14], 1);
+                atomicAdd((uint32_t*)&s_warpHist[15], threadSegments[i]);
             }
                 
             //End the current bin
@@ -480,6 +482,8 @@ namespace SplitSortInternal
                 position = atomicAdd((uint32_t*)&segHist[11], 1);
             if (32768 < segLength && segLength <= 65536)
                 position = atomicAdd((uint32_t*)&segHist[12], 1);
+            if (65536 < segLength && segLength <= 131072)
+                position = atomicAdd((uint32_t*)&segHist[13], 1);
 
             binOffsets[position] = segIndex;
         }
@@ -512,7 +516,7 @@ namespace SplitSortInternal
         uint32_t& segLength,
         uint32_t& reduction)
     {
-        if (segLength <= 65536)
+        if (segLength <= 131072)
             segLength = 0;
 
         const uint32_t t = segLength;

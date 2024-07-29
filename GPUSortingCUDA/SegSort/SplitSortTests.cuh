@@ -19,7 +19,7 @@
 #include "SplitSort/SplitSort.cuh"
 #include "../UtilityKernels.cuh"
 
-#define SEG_INFO_SIZE 15
+#define SEG_INFO_SIZE 16
 #define CUDA_CHECK(_e, _s) if(_e != cudaSuccess) { \
         std::cout << "CUDA error (" << _s << "): " << cudaGetErrorString(_e) << std::endl; }
 
@@ -192,7 +192,7 @@ public:
                     segInitInfo[0],
                     m_tempMem);
 
-                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], true); //enable for super verbose
+                bool passed = ValidateSegSortRandomLength(segInitInfo[1], segInitInfo[0], false); //enable for super verbose
                 if (passed)
                     testsPassed++;
 
@@ -362,7 +362,7 @@ public:
                 segmentLength * segmentCount,
                 m_tempMem);
 
-            bool passed = ValidateSegSortRandomLength(segmentCount, segmentCount * segmentLength, true); //enable for super verbose
+            bool passed = ValidateSegSortRandomLength(segmentCount, segmentCount * segmentLength, false); //enable for super verbose
             if (passed)
                 testsPassed++;
 
@@ -516,12 +516,11 @@ public:
         FastTestFixedSegmentLength<28>(50, 1 << 21, 15, false);
 
         //5 radix passes
-        FastTestFixedSegmentLength<32>(50, 1 << 17, 15, false);
-        FastTestFixedSegmentLength<32>(50, 1 << 17, 255, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 18, 15, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 18, 255, false);
         
         //6 radix passes
-        FastTestFixedSegmentLength<32>(50, 1 << 17, 512, false);
-        FastTestFixedSegmentLength<32>(50, 1 << 17, 1024, false);
+        FastTestFixedSegmentLength<32>(50, 1 << 18, 512, false);
         */
     }
 
@@ -533,7 +532,6 @@ public:
     {
         //Due to extensive use of templating, this significantly
         //increases compile times. Uncomment to enable
-        /*
         FullTestRandomSegmentLengths<4>(100, 2, 18, 1 << 22, false);
         FullTestRandomSegmentLengths<8>(100, 2, 18, 1 << 22, false);
         FullTestRandomSegmentLengths<12>(100, 2, 18, 1 << 22, false);
@@ -560,13 +558,11 @@ public:
         FullTestFixedSegmentLength<28>(50, 1 << 21, 15, false);
 
         //5 radix passes
-        FullTestFixedSegmentLength<32>(50, 1 << 17, 15, false);
-        FullTestFixedSegmentLength<32>(50, 1 << 17, 255, false);
+        FullTestFixedSegmentLength<32>(50, 1 << 18, 15, false);
+        FullTestFixedSegmentLength<32>(50, 1 << 18, 255, false);
 
         //6 radix passes
-        FullTestFixedSegmentLength<32>(50, 1 << 17, 512, false);
-        FullTestFixedSegmentLength<32>(50, 1 << 17, 1024, false);
-        */
+        FullTestFixedSegmentLength<32>(50, 1 << 18, 512, false);
     }
 
 private:

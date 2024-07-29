@@ -1090,6 +1090,7 @@ namespace SplitSortInternal
 
             if constexpr (BITS_TO_SORT > RADIX_LOG)
             {
+                #pragma unroll
                 for (uint32_t k = 0; k < KEYS_PER_THREAD; ++k)
                     indexes[k] = s_indexes[indexes[k]];
             }
@@ -1182,13 +1183,15 @@ namespace SplitSortInternal
             if (pred)
             {
                 keys[i] = k0;
-                tValues[i] = values[startA];
+                if(startA < endA)
+                    tValues[i] = values[startA];
                 ++startA;
             }
             else
             {
                 keys[i] = k1;
-                tValues[i] = values[startB];
+                if(startB < endB)
+                    tValues[i] = values[startB];
                 ++startB;
             }
         }
