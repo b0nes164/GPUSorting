@@ -366,3 +366,42 @@ static void SuperTestDeviceRadixSort(
     else
         printf("%u / %u DEVICE RADIX SORT SUPER TEST FAILED!\n", testsPassed, testsExpected);
 }
+
+static void BenchmarkOneSweep(
+    winrt::com_ptr<ID3D12Device> device,
+    const GPUSorting::DeviceInfo& deviceInfo)
+{
+    printf("---------------------------------------------------------");
+    printf("\n-----------------ONESWEEP KEYS BENCHMARK-----------------");
+    printf("\n---------------------------------------------------------\n");
+    OneSweep* oneSweepKeys = new OneSweep(
+        device,
+        deviceInfo,
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32);
+    oneSweepKeys->TestAll();
+    oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_1);
+    oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_2);
+    oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_3);
+    oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_4);
+    oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_5);
+    oneSweepKeys->~OneSweep();
+
+    printf("\n---------------------------------------------------------");
+    printf("\n-----------------ONESWEEP PAIRS BENCHMARK-----------------");
+    printf("\n---------------------------------------------------------\n");
+    OneSweep* oneSweepPairs = new OneSweep(
+        device,
+        deviceInfo,
+        GPUSorting::ORDER_ASCENDING,
+        GPUSorting::KEY_UINT32,
+        GPUSorting::PAYLOAD_UINT32);
+    oneSweepPairs->TestAll();
+    oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_1);
+    oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_2);
+    oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_3);
+    oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_4);
+    oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_5);
+    oneSweepPairs->~OneSweep();
+
+}

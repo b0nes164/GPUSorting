@@ -154,5 +154,7 @@ int main()
     //SuperTestOneSweep(device, deviceInfo);            <-Test the complete feature space,
     //SuperTestDeviceRadixSort(device, deviceInfo);     <-this will take a while!
 
+    //BenchmarkOneSweep(device, deviceInfo);            //<-Grab a cup of coffee, this may take 5 - 10 minutes              
+
     return 0;
 }

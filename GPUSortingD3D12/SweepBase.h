@@ -114,12 +114,12 @@ public:
         sortPayloadTestsPassed += ValidateSort(1 << 23, 11);
 
         uint64_t totalAvailableMemory = m_devInfo.dedicatedVideoMemory + m_devInfo.sharedSystemMemory;
-        uint64_t maxDimTestSize = (uint64_t)k_maxDispatchDimension * k_tuningParameters.partitionSize;
+        uint32_t maxDimTestSize = k_maxDispatchDimension * k_tuningParameters.partitionSize;    //does not exceed u32 for all tuning paramters.
 
         uint64_t staticMemoryRequirements =
-            ((uint64_t)k_radix * k_radixPasses * sizeof(uint32_t)) +      //This is the global histogram
-            (sizeof(uint32_t)) +                                //The error buffer
-            k_maxReadBack * sizeof(uint32_t);                   //The readback buffer
+            ((uint64_t)k_radix * k_radixPasses * sizeof(uint32_t)) +    //This is the global histogram
+            (sizeof(uint32_t)) +                                        //The error buffer
+            k_maxReadBack * sizeof(uint32_t);                           //The readback buffer
 
         //Multiply by 4 for sort, payload, alt, alt payload, add 1
         //in case fragmentation of the memory causes issues when spilling into shared system memory. 
