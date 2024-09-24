@@ -372,7 +372,7 @@ static void BenchmarkOneSweep(
     const GPUSorting::DeviceInfo& deviceInfo)
 {
     printf("---------------------------------------------------------");
-    printf("\n-----------------ONESWEEP KEYS BENCHMARK-----------------");
+    printf("\n---------------ONESWEEP KEYS ENTROPY SWEEP---------------");
     printf("\n---------------------------------------------------------\n");
     OneSweep* oneSweepKeys = new OneSweep(
         device,
@@ -385,10 +385,16 @@ static void BenchmarkOneSweep(
     oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_3);
     oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_4);
     oneSweepKeys->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_5);
+
+    printf("\n---------------------------------------------------------");
+    printf("\n-----------------ONESWEEP KEYS SIZE SWEEP----------------");
+    printf("\n---------------------------------------------------------\n");
+    for (uint32_t i = 10; i < 28; ++i)
+        oneSweepKeys->BatchTiming(1 << i, 500, 10, GPUSorting::ENTROPY_PRESET_1);
     oneSweepKeys->~OneSweep();
 
     printf("\n---------------------------------------------------------");
-    printf("\n-----------------ONESWEEP PAIRS BENCHMARK-----------------");
+    printf("\n--------------ONESWEEP PAIRS ENTROPY SWEEP---------------");
     printf("\n---------------------------------------------------------\n");
     OneSweep* oneSweepPairs = new OneSweep(
         device,
@@ -402,6 +408,12 @@ static void BenchmarkOneSweep(
     oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_3);
     oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_4);
     oneSweepPairs->BatchTiming(1 << 28, 500, 10, GPUSorting::ENTROPY_PRESET_5);
+
+    printf("\n---------------------------------------------------------");
+    printf("\n----------------ONESWEEP PAIRS SIZE SWEEP----------------");
+    printf("\n---------------------------------------------------------\n");
+    for (uint32_t i = 10; i < 28; ++i)
+        oneSweepPairs->BatchTiming(1 << i, 500, 10, GPUSorting::ENTROPY_PRESET_1);
     oneSweepPairs->~OneSweep();
 
 }
