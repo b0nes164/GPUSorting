@@ -1,0 +1,9 @@
+[package]
+name = "GPUPrefixSumsWGPU"
+version = "0.1.1"
+edition = "2021"
+
+[dependencies]
+wgpu = "23.0"
+pollster = "0.3"
+bytemuck = "1.16.3"
