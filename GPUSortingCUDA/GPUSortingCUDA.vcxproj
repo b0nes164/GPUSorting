@@ -33,7 +33,6 @@
     <CudaCompile Include="Sort\DeviceRadixSort.cu" />
     <CudaCompile Include="Sort\EmulatedDeadlocking.cu" />
     <CudaCompile Include="GPUSortingCUDA.cu" />
-    <CudaCompile Include="Sort\OneSweep.cu" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{C48EDDD2-7C75-49D9-B91B-4A4EEEA2AB94}</ProjectGuid>
