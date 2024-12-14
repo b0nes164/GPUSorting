@@ -86,8 +86,10 @@ void SplitSortExample() {
     cuda_err = cudaGetLastError();
     CUDA_CHECK(cuda_err, "Initial malloc");
 
+    //Dispatch SplitSort
     SplitSortPairs<32>(segments, keys, values, totalSegCount, totalSegLength, tempMem);
 
+    //Readback keys from device memory
     cudaMemcpy(exampleKeys, keys, totalSegLength * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 
     printf("------------AFTER SORTING---------------\n");

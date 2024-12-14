@@ -100,7 +100,7 @@ namespace SplitSortInternal {
             if (65536 < threadSegments[i] && threadSegments[i] <= 131072)
                 atomicAdd((uint32_t*)&s_warpHist[13], 1);
 
-            //if a segment is longer than 65536, we also
+            //if a segment is longer than 131072, we also
             //count its length, as we will need it later
             if (131072 < threadSegments[i]) {
                 atomicAdd((uint32_t*)&s_warpHist[14], 1);
@@ -262,7 +262,7 @@ namespace SplitSortInternal {
     //This kernel has 3 jobs:
     //1)Pack segments of length <= 32 into bins
     //2)Bin segments > 32 using Hou style approach
-    //3)Sum all segments > 65536, if any, to be used later
+    //3)Sum all segments > 131072, if any, to be used later
     template <uint32_t PART_SIZE,      //Size of a partition tile
               uint32_t WARPS,          //Warps in a threadblock
               uint32_t SPT,            //Segments per thread
@@ -395,7 +395,7 @@ namespace SplitSortInternal {
     //This kernel has 2 jobs:
     //1) bin segment lengths > 32
     //2) Track the offsets necessary to create a contiguous buffer
-    //from the segments of length > 65536
+    //from the segments of length > 131072
     template <uint32_t PART_SIZE,     //size of a partition tile
               uint32_t SPT,           //segments per thread
               uint32_t WARPS,         //warps in a threadblock
@@ -438,7 +438,7 @@ namespace SplitSortInternal {
             }
         }
 
-        //Device wide prefix sum of segment lengths whose length > 65536
+        //Device wide prefix sum of segment lengths whose length > 131072
         const uint32_t warpScan =
             ScanAndPostStatusFlag<WARPS>(reduction, s_reduction, threadReduction, partitionIndex);
 

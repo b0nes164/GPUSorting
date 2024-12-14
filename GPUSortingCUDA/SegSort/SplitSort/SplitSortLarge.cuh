@@ -313,7 +313,7 @@ namespace SplitSortInternal {
             s_localHistogram[0] = atomicAdd((uint32_t*)&index[0], 1);
         }
         __syncthreads();
-        const uint32_t partitionIndex = s_localHistogram[0];  //Protected by RankKeys barrier
+        const uint32_t partitionIndex = s_localHistogram[0];
 
         //load keys
         uint32_t keys[PASS_KPT];

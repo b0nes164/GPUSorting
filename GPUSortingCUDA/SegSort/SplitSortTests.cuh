@@ -513,10 +513,8 @@ class SplitSortTests {
         cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes, m_segments, m_segments,
                                       segInitInfo[1] + 1);  //Get the inclusive scan for CUB
         cudaFree(d_temp_storage);
-
         InitRandomSegLengthRandomValue<<<4096, 64>>>(m_sort, m_payloads, m_segments, segInitInfo[1],
                                                      segInitInfo[0], bitsToSort, seed);
-
         return false;
     }
 

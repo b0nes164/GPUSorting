@@ -435,14 +435,14 @@ template <uint32_t BITS_TO_SORT, class V>
 __host__ void SplitSortPairs(uint32_t* segments, uint32_t* sort, V* values,
                              const uint32_t totalSegCount, const uint32_t totalSegLength,
                              void* tempMem) {
-    //empirical results indicate cuda stream slower?
+    //empirical results indicate multiple cuda stream slower?
     //cudaStream_t stream[SEG_HIST_SIZE];
     //for(uint32_t i = 0; i < SEG_HIST_SIZE; ++i)
     //    cudaStreamCreate(&stream[i]);
 
     //The segInfo contains:
-    //0 - 13:   CircularShift inclusive scan of segment bin histogram
-    //14:       The totalLength of all segments whose size is greater than 8192
+    //0 - 14:   CircularShift inclusive scan of segment bin histogram
+    //15:       The totalLength of all segments whose size is greater than 131072
     uint32_t segInfo[SEG_INFO_SIZE];
     const uint32_t nextFitPartitions = SplitSortInternal::GetNextFitPartitions(totalSegCount);
     uint32_t* packedSegCounts =
@@ -453,10 +453,10 @@ __host__ void SplitSortPairs(uint32_t* segments, uint32_t* sort, V* values,
     SplitSortInternal::SplitSortBinning(segments, binOffsets, packedSegCounts, tempMem, segInfo,
                                         totalSegCount, totalSegLength, nextFitPartitions);
 
-    //For now, if any segments of length greater than 65536
+    //For now, if any segments of length greater than 131072
     //are encountered, the entire segmented sort is done in place.
     //In the future, we'll only do this if the majority of the
-    //segments are greater than 65536
+    //segments are greater than 131072
     //segInfo is in circular shifted inclusive/exclusive form
     if (segInfo[0] - segInfo[SEG_INFO_SIZE - 2] > 0) {
         SplitSortInternal::SplitSortLargeInPlace<V, BITS_TO_SORT>(segments, sort, values,
