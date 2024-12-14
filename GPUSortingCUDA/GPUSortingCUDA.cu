@@ -2,7 +2,7 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/21/2024
+ * Copyright Thomas Smith 12/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
@@ -10,8 +10,8 @@
 #include "Sort/OneSweepDispatcher.cuh"
 #include "Sort/DeviceRadixSortDispatcher.cuh"
 #include "Sort/CubDispatcher.cuh"
-#include "Sort/EmulatedDeadlockingDispatcher.cuh"
 #include "SegSort/SplitSortTests.cuh"
+#include "SegSort/SplitSortExample.cuh"
 
 int main()
 {
@@ -32,7 +32,7 @@ int main()
     cub->BatchTimingCubOneSweepKeys(1 << 28, 100, 10, ENTROPY_PRESET_1);
     cub->~CubDispatcher();
 
-    printf("----------------BEGINNING PAIRS TESTS----------------\n\n");
+    //printf("----------------BEGINNING PAIRS TESTS----------------\n\n");
     oneSweep = new OneSweepDispatcher(false, 1 << 28);
     oneSweep->TestAllPairs();
     oneSweep->BatchTimingPairs(1 << 28, 100, 10, ENTROPY_PRESET_1);
@@ -47,12 +47,12 @@ int main()
     cub->BatchTimingCubDeviceRadixSortPairs(1 << 28, 100, 10, ENTROPY_PRESET_1);
     cub->BatchTimingCubOneSweepPairs(1 << 28, 100, 10, ENTROPY_PRESET_1);
     cub->~CubDispatcher();
-        
+       
     //-----------------SEGMETED SORT-----------------
-    printf("----------------BEGINNING SEGMENTED SORT TESTS----------------\n\n");
+    /* printf("----------------BEGINNING SEGMENTED SORT TESTS----------------\n\n");
     SplitSortTests<uint32_t>* splitSort = new SplitSortTests<uint32_t>(1 << 27, 1 << 27, 1U);
-    splitSort->TestAllRandomSegmentLengths<32>(100, false);
-    splitSort->~SplitSortTests();
+    splitSort->FullMegaTest();
+    splitSort->~SplitSortTests();*/
 
     return 0;
 }

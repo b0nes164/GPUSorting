@@ -2,16 +2,16 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/21/2024
+ * Copyright Thomas Smith 12/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
 #pragma once
 #include <stdint.h>
 #include <stdio.h>
-#include "Utils.cuh"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "Utils.cuh"
 
 typedef enum ENTROPY_PRESET {
     ENTROPY_PRESET_1 = 0,

@@ -2,17 +2,17 @@
  * GPUSorting
  *
  * SPDX-License-Identifier: MIT
- * Copyright Thomas Smith 2/21/2024
+ * Copyright Thomas Smith 12/13/2024
  * https://github.com/b0nes164/GPUSorting
  *
  ******************************************************************************/
 #pragma once
 #include <stdint.h>
 #include <stdio.h>
-#include "../UtilityKernels.cuh"
-#include "DeviceRadixSort.cuh"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "../UtilityKernels.cuh"
+#include "DeviceRadixSort.cuh"
 
 #define RADIX 256
 #define RADIX_LOG 8

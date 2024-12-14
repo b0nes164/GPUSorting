@@ -13,12 +13,12 @@
  *
  ******************************************************************************/
 #pragma once
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
 #include "../UtilityKernels.cuh"
 #include "cub/agent/agent_radix_sort_onesweep.cuh"
 #include "cub/device/device_radix_sort.cuh"
 #include "cub/util_type.cuh"
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
 
 template <typename KeyT, typename ValueT, typename OffsetT>
 struct policy_hub_t {
@@ -342,9 +342,8 @@ class CubDispatcher {
 
    private:
     bool DispatchValidate(uint32_t size) {
-        const uint32_t valThreadBlocks = (size + 4095) / 4096;
         cudaMemset(m_errCount, 0, sizeof(uint32_t));
-        Validate<<<valThreadBlocks, 256>>>(m_sort, m_errCount, size);
+        Validate<<<512, 512>>>(m_sort, m_errCount, size);
         uint32_t errCount[1];
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
         return !errCount[0];
