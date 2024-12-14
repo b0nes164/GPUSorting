@@ -10,10 +10,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <cassert>
-#include "../UtilityKernels.cuh"
-#include "OneSweep.cuh"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
+#include "../UtilityKernels.cuh"
+#include "OneSweep.cuh"
 
 #define RADIX 256
 #define RADIX_LOG 8
@@ -32,7 +32,6 @@
 class OneSweepDispatcher {
     const bool k_keysOnly;
     const uint32_t k_maxSize;
-    const uint32_t k_valPartSize = 4096;
 
     uint32_t* m_sort;
     uint32_t* m_sortPayload;
@@ -307,18 +306,16 @@ class OneSweepDispatcher {
     }
 
     bool DispatchValidateKeys(uint32_t size) {
-        const uint32_t valThreadBlocks = divRoundUp(size, k_valPartSize);
         cudaMemset(m_errCount, 0, sizeof(uint32_t));
-        Validate<<<valThreadBlocks, 256>>>(m_sort, m_errCount, size);
+        Validate<<<512, 512>>>(m_sort, m_errCount, size);
         uint32_t errCount[1];
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
         return !errCount[0];
     }
 
     bool DispatchValidatePairs(uint32_t size) {
-        const uint32_t valThreadBlocks = divRoundUp(size, k_valPartSize);
         cudaMemset(m_errCount, 0, sizeof(uint32_t));
-        Validate<<<valThreadBlocks, 256>>>(m_sort, m_sortPayload, m_errCount, size);
+        Validate<<<512, 512>>>(m_sort, m_sortPayload, m_errCount, size);
         uint32_t errCount[1];
         cudaMemcpy(&errCount, m_errCount, sizeof(uint32_t), cudaMemcpyDeviceToHost);
         return !errCount[0];

@@ -22,16 +22,13 @@
     <ClInclude Include="Sort\CubDispatcher.cuh" />
     <ClInclude Include="Sort\DeviceRadixSort.cuh" />
     <ClInclude Include="Sort\DeviceRadixSortDispatcher.cuh" />
-    <ClInclude Include="Sort\EmulatedDeadlocking.cuh" />
-    <ClInclude Include="Sort\EmulatedDeadlockingDispatcher.cuh" />
     <ClInclude Include="Sort\OneSweep.cuh" />
     <ClInclude Include="Sort\OneSweepDispatcher.cuh" />
+    <ClInclude Include="Sort\SortCommon.cuh" />
     <ClInclude Include="UtilityKernels.cuh" />
     <ClInclude Include="Utils.cuh" />
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="Sort\DeviceRadixSort.cu" />
-    <CudaCompile Include="Sort\EmulatedDeadlocking.cu" />
     <CudaCompile Include="GPUSortingCUDA.cu" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
